@@ -186,8 +186,8 @@ ssh user@your-vps 'mkdir -p ~/.openclaw/secrets && chmod 700 ~/.openclaw/secrets
 注意：
 
 - `setup` 完成只表示基础配置已写入
-- 只有 `authReady=true` 后，插件技能才会正常加载
-- 建议每次授权完成后执行一次 `openclaw calendar-intake doctor`
+- 插件配置里的 `authReady` 会作为技能加载开关；`calendar_intake_auth_exchange` 成功后会先把它写成 `true`
+- 建议每次授权完成后立刻执行一次 `openclaw calendar-intake doctor`，让插件继续校验目标 `calendarId` 是否真实可访问
 - 也可以在 OpenClaw 对话中调用 `calendar_intake_auth_status` 查看当前授权状态
 
 ### 第一步：生成授权链接
@@ -210,6 +210,7 @@ ssh user@your-vps 'mkdir -p ~/.openclaw/secrets && chmod 700 ~/.openclaw/secrets
 并把 `code` 或完整回调 URL 作为参数传入
 
 成功后，插件会把 token 保存到 `tokenPath`。
+同时插件配置里的 `authReady` 会先被写成 `true`；后续可再用 `doctor` / `calendar_intake_auth_status` 刷新为当前真实状态。
 
 ### 第三步：执行健康检查
 
@@ -226,7 +227,7 @@ openclaw calendar-intake doctor
 ## 配置项
 
 - `configured`：是否已完成首次 setup 初始化
-- `authReady`：是否已完成 OAuth 授权并通过基本可用性检查
+- `authReady`：插件当前用于控制技能加载的授权状态位；成功交换 token 后会先写成 `true`，再由 `doctor` / `calendar_intake_auth_status` 按实际可访问性刷新
 - `calendarId`：目标 Google Calendar ID，通常用 `primary`
 - `timezone`：默认时区，建议固定为 `Asia/Shanghai`
 - `credentialsPath`：Google OAuth 客户端凭据文件绝对路径
@@ -236,7 +237,7 @@ openclaw calendar-intake doctor
 - `autoDeleteMode`：自动删除策略，默认 `exact_only`
 - `dedupeWindowMinutes`：创建前识别重复事项的时间窗口
 
-插件技能会在 `configured=true` 且 `authReady=true` 后才加载，避免未初始化或未授权时误触发。
+插件技能会在 `configured=true` 且 `authReady=true` 后加载。当前实现里，`auth_exchange` 成功保存 token 后就会先把 `authReady` 设为 `true`，而 `doctor` / `calendar_intake_auth_status` 会继续根据目标日历是否可访问来刷新它。
 
 ## 使用方式
 
@@ -304,9 +305,10 @@ openclaw calendar-intake doctor
 删除流程规则：
 
 - 删除工具支持直接接收自然语言查询，内部会先搜索候选事项
-- 默认只在标题和日期/时间都足够精确时才会自动删除
+- 默认策略 `exact_only` 下，标题必须精确匹配；如果查询里带了日期/时间，还要求日期/时间也足够精确
+- 如果查询里没有日期/时间，但标题精确匹配且只命中一个高分候选，当前实现也可能直接自动删除
 - 如果有多个候选，会先展示 `choiceId` 编号，再让用户选择
-- 候选展示使用短编号，不要求用户理解 Google eventId
+- 删除确认主要使用短编号 `choiceId`；`calendar_intake_find_events` 的文本结果当前还会附带 `eventId`
 
 ## 默认时间语义
 
