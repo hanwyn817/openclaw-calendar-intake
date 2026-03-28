@@ -44,10 +44,10 @@ metadata: {"openclaw":{"requires":{"config":["plugins.entries.openclaw-calendar-
 ### 3. 删除日程
 
 如果用户要求删除某个日程，哪怕没有使用精确前缀 `删除日程`：
-1. 先用用户原话调用 `calendar_intake_find_events`。
-2. 如果返回中存在 `autoDeleteEventId`，直接调用 `calendar_intake_delete_event` 删除该事项。
-3. 如果有多个候选项，先展示编号列表，再让用户选择。
-4. 用户选择后，再调用 `calendar_intake_delete_event` 并传入对应的 `eventId`。
+1. 直接调用 `calendar_intake_delete_event`，优先传 `queryText=用户原话`。
+2. 如果工具直接删除成功，直接告诉用户结果。
+3. 如果返回多个候选项，先展示 `choiceId` 编号列表，再让用户选择。
+4. 用户选择后，再次调用 `calendar_intake_delete_event`，传入相同 `queryText` 和对应 `choiceId`。
 
 ## 备注
 

@@ -4,7 +4,7 @@ import { assertPluginReady, getConfig } from "../config.js";
 import { isoRangeAroundNow, localDateFromIso, parseDateTimeInZone, toRfc3339 } from "../datetime.js";
 import { describeEvent, listEvents } from "../google/calendar.js";
 import { scoreEventMatch } from "../scoring.js";
-import type { FindQuery } from "../types.js";
+import type { CalendarEventLite, FindQuery, PluginConfig } from "../types.js";
 
 function normalizeTitle(input: string): string {
   return input.toLowerCase().replace(/\s+/g, " ").trim();
@@ -71,6 +71,33 @@ function searchWindowForQuery(query: FindQuery, timezone: string, lookbackDays: 
   };
 }
 
+export type RankedEventCandidate = {
+  event: CalendarEventLite;
+  score: number;
+  choiceId: string;
+};
+
+function rankEventCandidates(query: FindQuery, items: CalendarEventLite[]): RankedEventCandidate[] {
+  return items
+    .map((event) => ({ event, score: scoreEventMatch(query, event) }))
+    .filter((x) => x.score > 10)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+    .map((x, index) => ({
+      ...x,
+      choiceId: `C${index + 1}`
+    }));
+}
+
+export function findCandidateByChoiceId(
+  ranked: RankedEventCandidate[],
+  choiceId: string | undefined
+): RankedEventCandidate | undefined {
+  if (!choiceId) return undefined;
+  const normalized = choiceId.trim().toUpperCase();
+  return ranked.find((candidate) => candidate.choiceId.toUpperCase() === normalized);
+}
+
 export function autoDeleteCandidateId(
   queryOrScores: FindQuery | Array<{ score: number; event: { id: string; summary?: string; start?: { dateTime?: string; date?: string } } }>,
   scoresOrMode?: Array<{ score: number; event: { id: string; summary?: string; start?: { dateTime?: string; date?: string } } }> | "never" | "exact_only" | "heuristic",
@@ -108,6 +135,47 @@ export function autoDeleteCandidateId(
   return top.event.id;
 }
 
+function buildFindCandidatesText(
+  ranked: RankedEventCandidate[],
+  autoDeleteEventId: string | undefined,
+  timezone: string,
+  window: { timeMin: string; timeMax: string }
+): string {
+  return ranked.length
+    ? [
+        autoDeleteEventId
+          ? `已命中唯一精确候选，可安全删除。eventId=${autoDeleteEventId}`
+          : "候选事项：",
+        ...ranked.map((x) => `候选 ${x.choiceId} [score=${x.score.toFixed(1)}] ${describeEvent(x.event, timezone)} [eventId=${x.event.id}]`),
+        `搜索范围：${window.timeMin} -> ${window.timeMax}`
+      ].join("\n")
+    : `没有找到高置信度候选项。\n搜索范围：${window.timeMin} -> ${window.timeMax}`;
+}
+
+export async function resolveFindEvents(cfg: PluginConfig, queryText: string) {
+  const query = buildFindQuery(queryText, cfg.timezone);
+  const window = searchWindowForQuery(query, cfg.timezone, cfg.lookbackDays, cfg.lookaheadDays);
+
+  const items = await listEvents(
+    cfg.credentialsPath,
+    cfg.tokenPath,
+    cfg.calendarId,
+    window.timeMin,
+    window.timeMax,
+    cfg.timezone
+  );
+
+  const ranked = rankEventCandidates(query, items);
+  const autoDeleteEventId = autoDeleteCandidateId(query, ranked, cfg.autoDeleteMode);
+
+  return {
+    query,
+    window,
+    ranked,
+    autoDeleteEventId
+  };
+}
+
 /**
  * 工具：calendar_intake_find_events
  *
@@ -124,32 +192,8 @@ export const findEventsTool = {
     const api = (this as any).api;
     const cfg = getConfig(api);
     assertPluginReady(cfg);
-    const query = buildFindQuery(params.queryText, cfg.timezone);
-    const window = searchWindowForQuery(query, cfg.timezone, cfg.lookbackDays, cfg.lookaheadDays);
-
-    const items = await listEvents(
-      cfg.credentialsPath,
-      cfg.tokenPath,
-      cfg.calendarId,
-      window.timeMin,
-      window.timeMax,
-      cfg.timezone
-    );
-
-    const ranked = items
-      .map((e) => ({ event: e, score: scoreEventMatch(query, e) }))
-      .filter((x) => x.score > 10)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
-    const autoDeleteEventId = autoDeleteCandidateId(query, ranked, cfg.autoDeleteMode);
-
-    const text = ranked.length
-      ? [
-          autoDeleteEventId ? "已命中唯一精确候选，可安全删除。" : "候选事项：",
-          ...ranked.map((x, i) => `候选 ${i + 1} [score=${x.score.toFixed(1)}] ${describeEvent(x.event, cfg.timezone)}`),
-          `搜索范围：${window.timeMin} -> ${window.timeMax}`
-        ].join("\n")
-      : `没有找到高置信度候选项。\n搜索范围：${window.timeMin} -> ${window.timeMax}`;
+    const { query, window, ranked, autoDeleteEventId } = await resolveFindEvents(cfg, params.queryText);
+    const text = buildFindCandidatesText(ranked, autoDeleteEventId, cfg.timezone, window);
 
     return {
       structuredContent: {
@@ -157,10 +201,10 @@ export const findEventsTool = {
         searchWindowUsed: window,
         requiresConfirmation: autoDeleteEventId == null,
         autoDeleteEventId: autoDeleteEventId ?? null,
-        candidates: ranked.map((x, index) => ({
+        candidates: ranked.map((x) => ({
           ...x.event,
           score: x.score,
-          choiceId: `C${index + 1}`
+          choiceId: x.choiceId
         }))
       },
       content: [{ type: "text", text }]

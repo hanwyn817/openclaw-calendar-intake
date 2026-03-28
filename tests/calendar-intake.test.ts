@@ -20,7 +20,7 @@ import {
 import { buildParsedEventPreview, parseEventFromText } from "../src/parser.js";
 import { scoreEventMatch } from "../src/scoring.js";
 import { formatSetupCompletionMessage } from "../src/cli.js";
-import { autoDeleteCandidateId, buildFindQuery } from "../src/tools/find-events.js";
+import { autoDeleteCandidateId, buildFindQuery, findCandidateByChoiceId } from "../src/tools/find-events.js";
 import { rangeToWindow } from "../src/tools/list-events.js";
 import type { CalendarEventLite } from "../src/types.js";
 
@@ -113,6 +113,32 @@ describe("delete candidate heuristics", () => {
       .sort((a, b) => b.score - a.score);
 
     expect(autoDeleteCandidateId(query, ranked, "exact_only")).toBe("evt-1");
+  });
+
+  it("maps choiceId back to the selected candidate", () => {
+    const ranked = [
+      {
+        choiceId: "C1",
+        score: 88,
+        event: {
+          id: "evt-1",
+          summary: "供应商会议",
+          start: { dateTime: "2026-03-28T15:00:00+08:00" }
+        }
+      },
+      {
+        choiceId: "C2",
+        score: 72,
+        event: {
+          id: "evt-2",
+          summary: "供应商周会",
+          start: { dateTime: "2026-03-29T15:00:00+08:00" }
+        }
+      }
+    ];
+
+    expect(findCandidateByChoiceId(ranked, "c2")?.event.id).toBe("evt-2");
+    expect(findCandidateByChoiceId(ranked, "C9")).toBeUndefined();
   });
 });
 
