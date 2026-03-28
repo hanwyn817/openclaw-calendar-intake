@@ -1,6 +1,6 @@
 {
     "id": "openclaw-calendar-intake",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "name": "日历收件箱",
     "description": "解析粘贴的会议通知，并管理 Google Calendar 日程",
     "skills": [
@@ -14,7 +14,12 @@
         },
         "authReady": {
             "label": "授权可用",
-            "help": "表示 credentials 和 token 已准备好，且插件可安全加载技能。",
+            "help": "表示目标日历已验证可访问，插件可安全加载技能。",
+            "advanced": true
+        },
+        "tokenReady": {
+            "label": "Token 已就绪",
+            "help": "表示本地 token 文件已存在且格式可读，但不代表目标日历一定可访问。",
             "advanced": true
         },
         "credentialsPath": {
@@ -59,9 +64,14 @@
                 "description": "是否已完成首次 setup 初始化。",
                 "default": false
             },
+            "tokenReady": {
+                "type": "boolean",
+                "description": "是否已保存并识别到本地 token 文件。",
+                "default": false
+            },
             "authReady": {
                 "type": "boolean",
-                "description": "是否已完成 OAuth 授权并具备可用 token。",
+                "description": "是否已验证目标 calendarId 可访问，并允许插件安全加载技能。",
                 "default": false
             },
             "calendarId": {

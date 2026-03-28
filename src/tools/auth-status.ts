@@ -25,7 +25,11 @@ export const authStatusTool = {
 
     await updateConfig((root) => applyPluginConfigToOpenClawConfig(
       root as Record<string, any>,
-      { ...cfg, authReady: status.authReady }
+      {
+        ...cfg,
+        tokenReady: status.tokenReady,
+        authReady: status.authReady
+      }
     ));
 
     return {

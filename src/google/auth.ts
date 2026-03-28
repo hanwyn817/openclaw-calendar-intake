@@ -24,6 +24,7 @@ type LocalAuthInspection = {
 
 export type AuthStatus = LocalAuthInspection & {
   setupComplete: boolean;
+  tokenReady: boolean;
   authReady: boolean;
   calendarId: string;
   calendarAccessible: boolean;
@@ -258,6 +259,7 @@ export async function getAuthStatus(
   const status: AuthStatus = {
     ...local,
     setupComplete: options?.setupComplete ?? true,
+    tokenReady: local.tokenValid,
     authReady: false,
     calendarId,
     calendarAccessible: false,
@@ -299,6 +301,7 @@ export function formatAuthStatus(status: AuthStatus): string {
     `setup: ${status.setupComplete ? "ok" : "missing"}`,
     `credentials: ${status.credentialsValid ? "ok" : "invalid"}`,
     `token: ${status.tokenValid ? "ok" : "invalid"}`,
+    `tokenReady: ${status.tokenReady ? "true" : "false"}`,
     `refreshToken: ${status.tokenHasRefreshToken ? "ok" : "missing"}`,
     `calendar: ${status.calendarAccessible ? `ok (${status.calendarSummary ?? status.calendarId})` : "unreachable"}`,
     `authReady: ${status.authReady ? "true" : "false"}`

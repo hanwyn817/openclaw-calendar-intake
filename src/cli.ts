@@ -65,7 +65,8 @@ export async function collectSetupAnswers(
     const local = inspectLocalAuthState(base.credentialsPath, base.tokenPath);
     return {
       configured: true,
-      authReady: local.credentialsValid && local.tokenValid,
+      tokenReady: local.tokenValid,
+      authReady: false,
       ...base
     };
   }
@@ -100,7 +101,8 @@ export async function collectSetupAnswers(
 
     return {
       configured: true,
-      authReady: local.credentialsValid && local.tokenValid,
+      tokenReady: local.tokenValid,
+      authReady: false,
       credentialsPath,
       tokenPath,
       calendarId,
@@ -126,13 +128,14 @@ export function formatSetupCompletionMessage(config: PluginConfig): string {
     `- lookbackDays: ${config.lookbackDays}`,
     `- autoDeleteMode: ${config.autoDeleteMode}`,
     `- dedupeWindowMinutes: ${config.dedupeWindowMinutes}`,
+    `- tokenReady: ${config.tokenReady}`,
     `- authReady: ${config.authReady}`,
     "",
     "下一步：",
     "1. 把 Google OAuth Desktop app 的 credentials.json 放到上述 credentialsPath。",
     "2. 在 OpenClaw 对话中调用 calendar_intake_auth_init。",
     "3. 完成浏览器授权后，再调用 calendar_intake_auth_exchange。",
-    `4. 执行 openclaw ${CLI_COMMAND} doctor，确认 authReady=true 后再正常使用插件技能。`
+    `4. 执行 openclaw ${CLI_COMMAND} doctor，确认 tokenReady=true 且 authReady=true 后再正常使用插件技能。`
   ].join("\n");
 }
 
@@ -196,6 +199,7 @@ export function registerCalendarIntakeCli(program: Command) {
         rootConfig as Record<string, any>,
         {
           ...cfg,
+          tokenReady: status.tokenReady,
           authReady: status.authReady
         }
       ));

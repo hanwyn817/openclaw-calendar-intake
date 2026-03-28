@@ -23,6 +23,7 @@ export function defaultTokenPath(homeDir = os.homedir()): string {
 export function buildDefaultPluginConfig(homeDir = os.homedir()): PluginConfig {
   return {
     configured: false,
+    tokenReady: false,
     authReady: false,
     calendarId: DEFAULT_CALENDAR_ID,
     timezone: DEFAULT_TIMEZONE,
@@ -76,6 +77,7 @@ export function applyPluginConfigToOpenClawConfig<T>(
   next.plugins.entries[PLUGIN_ID].enabled = true;
   next.plugins.entries[PLUGIN_ID].config = {
     configured: pluginConfig.configured,
+    tokenReady: pluginConfig.tokenReady,
     authReady: pluginConfig.authReady,
     calendarId: pluginConfig.calendarId,
     timezone: pluginConfig.timezone,
@@ -109,6 +111,7 @@ export function getConfig(api: any): PluginConfig {
   const cfg = ((api.pluginConfig ?? api.config) ?? {}) as Partial<PluginConfig>;
   return {
     configured: cfg.configured ?? defaults.configured,
+    tokenReady: cfg.tokenReady ?? defaults.tokenReady,
     authReady: cfg.authReady ?? defaults.authReady,
     calendarId: cfg.calendarId ?? defaults.calendarId,
     timezone: cfg.timezone ?? defaults.timezone,

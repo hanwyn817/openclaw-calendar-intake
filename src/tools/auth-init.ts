@@ -28,7 +28,7 @@ export const authInitTool = {
             result.authUrl,
             "",
             "完成授权后，把浏览器回调地址里的 code 参数，或整段回调 URL，发送给工具 calendar_intake_auth_exchange。",
-            "授权完成后，建议再执行一次 calendar_intake_auth_status 确认 authReady=true。"
+            "授权完成后，建议再执行一次 calendar_intake_auth_status，确认 tokenReady=true 且 authReady=true。"
           ].join("\n")
         }
       ],

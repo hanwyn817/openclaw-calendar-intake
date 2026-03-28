@@ -26,6 +26,14 @@ export type CreatePreviewTokenPayload = {
   event: CreateEventInput;
 };
 
+export type DeletePreviewTokenPayload = {
+  version: 1;
+  calendarId: string;
+  event: CalendarEventLite;
+  choiceId?: string;
+  score?: number;
+};
+
 export type CreateBlockReason =
   | "missing_title"
   | "missing_all_day"
@@ -67,6 +75,7 @@ export type CalendarEventLite = {
 
 export type PluginConfig = {
   configured: boolean;
+  tokenReady: boolean;
   authReady: boolean;
   calendarId: string;
   timezone: string;

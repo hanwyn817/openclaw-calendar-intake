@@ -17,14 +17,18 @@ export const authExchangeTool = {
     const result = await authExchange(cfg.credentialsPath, cfg.tokenPath, params.code);
     await updateConfig((root) => applyPluginConfigToOpenClawConfig(
       root as Record<string, any>,
-      { ...cfg, authReady: result.tokenReady === true }
+      {
+        ...cfg,
+        tokenReady: result.tokenReady === true,
+        authReady: false
+      }
     ));
 
     return {
       content: [
         {
           type: "text",
-          text: `${result.message}\n\n现在可以执行 calendar_intake_auth_status 或 openclaw calendar-intake doctor 复查授权状态。`
+          text: `${result.message}\n\n当前仅表示 token 已保存；请继续执行 calendar_intake_auth_status 或 openclaw calendar-intake doctor，确认 authReady=true 后再正常使用插件技能。`
         }
       ]
     };

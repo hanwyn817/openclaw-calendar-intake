@@ -1,6 +1,6 @@
 {
     "name": "@hanwyn817/openclaw-calendar-intake",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "支持 Git 仓库本地安装的 OpenClaw 日历插件，用于解析会议通知并管理 Google Calendar 日程",
     "license": "UNLICENSED",
     "homepage": "https://github.com/hanwyn817/openclaw-calendar-intake#readme",

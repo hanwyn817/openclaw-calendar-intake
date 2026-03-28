@@ -22,6 +22,7 @@ import { scoreEventMatch } from "../src/scoring.js";
 import { formatSetupCompletionMessage } from "../src/cli.js";
 import { autoDeleteCandidateId, buildFindQuery, findCandidateByChoiceId } from "../src/tools/find-events.js";
 import { applyEventOverrides, buildCreatePreview } from "../src/tools/create-event.js";
+import { decodeDeletePreviewToken, encodeDeletePreviewToken } from "../src/tools/delete-event.js";
 import { rangeToWindow } from "../src/tools/list-events.js";
 import type { CalendarEventLite } from "../src/types.js";
 
@@ -346,6 +347,30 @@ describe("delete candidate heuristics", () => {
     expect(findCandidateByChoiceId(ranked, "c2")?.event.id).toBe("evt-2");
     expect(findCandidateByChoiceId(ranked, "C9")).toBeUndefined();
   });
+
+  it("freezes delete confirmation into a preview token", () => {
+    const token = encodeDeletePreviewToken("primary", {
+      choiceId: "C2",
+      score: 72,
+      event: {
+        id: "evt-2",
+        summary: "供应商周会",
+        start: { dateTime: "2026-03-29T15:00:00+08:00" }
+      }
+    });
+
+    expect(decodeDeletePreviewToken(token)).toEqual({
+      version: 1,
+      calendarId: "primary",
+      choiceId: "C2",
+      score: 72,
+      event: {
+        id: "evt-2",
+        summary: "供应商周会",
+        start: { dateTime: "2026-03-29T15:00:00+08:00" }
+      }
+    });
+  });
 });
 
 describe("normalizeAuthorizationCode", () => {
@@ -365,6 +390,7 @@ describe("setup defaults", () => {
     const defaults = buildDefaultPluginConfig("/home/tester");
 
     expect(defaults.configured).toBe(false);
+    expect(defaults.tokenReady).toBe(false);
     expect(defaults.authReady).toBe(false);
     expect(defaults.credentialsPath).toBe(defaultCredentialsPath("/home/tester"));
     expect(defaults.tokenPath).toBe(defaultTokenPath("/home/tester"));
@@ -378,6 +404,7 @@ describe("setup defaults", () => {
       { plugins: { entries: { "calendar-intake": { enabled: true, config: { timezone: "UTC" } } } } },
       {
         configured: true,
+        tokenReady: true,
         authReady: true,
         credentialsPath: "/root/.openclaw/secrets/google-calendar-credentials.json",
         tokenPath: "/root/.openclaw/secrets/google-calendar-token.json",
@@ -392,6 +419,7 @@ describe("setup defaults", () => {
 
     expect(next.plugins.entries[PLUGIN_ID].enabled).toBe(true);
     expect(next.plugins.entries[PLUGIN_ID].config.configured).toBe(true);
+    expect(next.plugins.entries[PLUGIN_ID].config.tokenReady).toBe(true);
     expect(next.plugins.entries[PLUGIN_ID].config.authReady).toBe(true);
     expect(next.plugins.entries[PLUGIN_ID].config.timezone).toBe("Asia/Shanghai");
     expect(next.plugins.entries["calendar-intake"]).toBeUndefined();
@@ -404,6 +432,7 @@ describe("setup defaults", () => {
           "calendar-intake": {
             config: {
               configured: true,
+              tokenReady: true,
               authReady: false,
               timezone: "Asia/Shanghai"
             }
@@ -413,6 +442,7 @@ describe("setup defaults", () => {
     });
 
     expect(current.configured).toBe(true);
+    expect(current.tokenReady).toBe(true);
     expect(current.authReady).toBe(false);
     expect(current.timezone).toBe("Asia/Shanghai");
   });
@@ -420,6 +450,7 @@ describe("setup defaults", () => {
   it("prints OAuth next steps after setup", () => {
     const message = formatSetupCompletionMessage({
       configured: true,
+      tokenReady: true,
       authReady: false,
       credentialsPath: "/tmp/credentials.json",
       tokenPath: "/tmp/token.json",
@@ -432,6 +463,7 @@ describe("setup defaults", () => {
     });
 
     expect(message).toContain("calendar_intake_auth_init");
+    expect(message).toContain("tokenReady");
     expect(message).toContain("authReady");
     expect(message).toContain("/tmp/credentials.json");
   });
