@@ -87,6 +87,67 @@ openclaw calendar-intake setup
 openclaw calendar-intake setup --yes
 ```
 
+## 准备 OAuth 凭据文件
+
+在执行 `calendar_intake_auth_init` 之前，先准备 Google OAuth Desktop app 的 `credentials.json`。
+
+### 第一步：在 Google Cloud Console 创建客户端
+
+1. 打开 Google Cloud Console，并确认当前项目已启用 Google Calendar API。
+2. 进入 `Google Auth Platform`。
+3. 如果系统先要求创建“品牌信息”或“OAuth 同意屏幕”，按向导完成即可。
+   如果只是你自己使用，通常选择“外部”即可。
+4. 进入 `客户端`，点击“创建客户端”。
+5. `应用类型` 选择“桌面应用（Desktop app）”。
+6. 创建完成后下载 JSON 文件。
+
+注意：
+
+- 本项目要求的是 OAuth Desktop app 客户端，不是 service account。
+- 下载下来的 JSON 文件里应包含 `installed` 和 `redirect_uris` 字段。
+
+### 第二步：重命名并放到 credentialsPath
+
+推荐直接使用默认路径：
+
+```bash
+~/.openclaw/secrets/google-calendar-credentials.json
+```
+
+如果你在当前机器上操作，可以直接重命名并移动：
+
+```bash
+mkdir -p ~/.openclaw/secrets
+mv ~/Downloads/credentials.json ~/.openclaw/secrets/google-calendar-credentials.json
+chmod 600 ~/.openclaw/secrets/google-calendar-credentials.json
+```
+
+如果下载后的文件名不是 `credentials.json`，把它重命名为 `google-calendar-credentials.json` 再放到上述路径即可。
+
+如果你不想用默认路径，也可以在 `openclaw calendar-intake setup` 时把实际绝对路径填给 `credentialsPath`。
+
+### 第三步：如果 OpenClaw 跑在 VPS 上，上传到 VPS
+
+`credentialsPath` 是 OpenClaw 运行机器上的本地文件路径。
+
+这意味着：
+
+- 如果 OpenClaw 跑在你的本机，文件就放在本机
+- 如果 OpenClaw 跑在 VPS，文件必须上传到 VPS，对话里授权时读取的也是 VPS 上的文件
+
+示例：
+
+```bash
+scp ~/Downloads/credentials.json user@your-vps:~/.openclaw/secrets/google-calendar-credentials.json
+ssh user@your-vps 'chmod 600 ~/.openclaw/secrets/google-calendar-credentials.json'
+```
+
+如果目标目录还不存在，可以先在 VPS 上创建：
+
+```bash
+ssh user@your-vps 'mkdir -p ~/.openclaw/secrets && chmod 700 ~/.openclaw/secrets'
+```
+
 ## Google OAuth 授权
 
 首次 setup 完成后，还需要做一次 Google OAuth 授权。
