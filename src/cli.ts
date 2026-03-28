@@ -5,7 +5,9 @@ import { loadConfig, updateConfig } from "openclaw/plugin-sdk/config-runtime";
 import {
   applyPluginConfigToOpenClawConfig,
   buildDefaultPluginConfig,
-  expandUserPath
+  CLI_COMMAND,
+  expandUserPath,
+  readPluginConfigFromOpenClawConfig
 } from "./config.js";
 import { formatAuthStatus, getAuthStatus, inspectLocalAuthState } from "./google/auth.js";
 import type { PluginConfig } from "./types.js";
@@ -130,13 +132,13 @@ export function formatSetupCompletionMessage(config: PluginConfig): string {
     "1. 把 Google OAuth Desktop app 的 credentials.json 放到上述 credentialsPath。",
     "2. 在 OpenClaw 对话中调用 calendar_intake_auth_init。",
     "3. 完成浏览器授权后，再调用 calendar_intake_auth_exchange。",
-    "4. 执行 openclaw calendar-intake doctor，确认 authReady=true 后再正常使用插件技能。"
+    `4. 执行 openclaw ${CLI_COMMAND} doctor，确认 authReady=true 后再正常使用插件技能。`
   ].join("\n");
 }
 
 export function registerCalendarIntakeCli(program: Command) {
   const root = program
-    .command("calendar-intake")
+    .command(CLI_COMMAND)
     .description("日历收件箱插件的安装后配置与维护命令");
 
   root.command("setup")
@@ -182,7 +184,7 @@ export function registerCalendarIntakeCli(program: Command) {
     .description("检查 credentials、token、calendarId 和 authReady 状态")
     .action(async () => {
       const rootConfig = await loadConfig();
-      const current = ((rootConfig.plugins?.entries?.["calendar-intake"]?.config ?? {}) as Partial<PluginConfig>);
+      const current = readPluginConfigFromOpenClawConfig(rootConfig);
       const cfg = {
         ...buildDefaultPluginConfig(),
         ...current,

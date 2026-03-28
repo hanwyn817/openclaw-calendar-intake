@@ -57,7 +57,7 @@ openclaw gateway restart
 后续更新插件可直接使用：
 
 ```bash
-openclaw plugins update calendar-intake
+openclaw plugins update @hanwyn817/openclaw-calendar-intake
 ```
 
 ## 首次初始化

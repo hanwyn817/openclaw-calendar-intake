@@ -1,6 +1,6 @@
 {
     "name": "@hanwyn817/openclaw-calendar-intake",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "用于解析粘贴会议通知并管理 Google Calendar 日程的 OpenClaw 插件",
     "license": "UNLICENSED",
     "homepage": "https://github.com/hanwyn817/openclaw-calendar-intake#readme",
@@ -22,7 +22,7 @@
     "type": "module",
     "main": "dist/index.js",
     "bin": {
-        "openclaw-calendar-intake-install": "./dist/install.js"
+        "openclaw-calendar-intake": "./dist/install.js"
     },
     "files": [
         "dist",

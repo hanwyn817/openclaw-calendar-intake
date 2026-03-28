@@ -4,7 +4,9 @@ import {
   applyPluginConfigToOpenClawConfig,
   buildDefaultPluginConfig,
   defaultCredentialsPath,
-  defaultTokenPath
+  defaultTokenPath,
+  PLUGIN_ID,
+  readPluginConfigFromOpenClawConfig
 } from "../src/config.js";
 import { normalizeAuthorizationCode } from "../src/google/auth.js";
 import {
@@ -135,9 +137,9 @@ describe("setup defaults", () => {
     expect(defaults.dedupeWindowMinutes).toBe(30);
   });
 
-  it("writes plugin config to the OpenClaw config shape", () => {
+  it("writes plugin config to the canonical OpenClaw config entry", () => {
     const next = applyPluginConfigToOpenClawConfig(
-      { plugins: { entries: {} } },
+      { plugins: { entries: { "calendar-intake": { enabled: true, config: { timezone: "UTC" } } } } },
       {
         configured: true,
         authReady: true,
@@ -152,10 +154,31 @@ describe("setup defaults", () => {
       }
     );
 
-    expect(next.plugins.entries["calendar-intake"].enabled).toBe(true);
-    expect(next.plugins.entries["calendar-intake"].config.configured).toBe(true);
-    expect(next.plugins.entries["calendar-intake"].config.authReady).toBe(true);
-    expect(next.plugins.entries["calendar-intake"].config.timezone).toBe("Asia/Shanghai");
+    expect(next.plugins.entries[PLUGIN_ID].enabled).toBe(true);
+    expect(next.plugins.entries[PLUGIN_ID].config.configured).toBe(true);
+    expect(next.plugins.entries[PLUGIN_ID].config.authReady).toBe(true);
+    expect(next.plugins.entries[PLUGIN_ID].config.timezone).toBe("Asia/Shanghai");
+    expect(next.plugins.entries["calendar-intake"]).toBeUndefined();
+  });
+
+  it("reads legacy config entries during migration", () => {
+    const current = readPluginConfigFromOpenClawConfig({
+      plugins: {
+        entries: {
+          "calendar-intake": {
+            config: {
+              configured: true,
+              authReady: false,
+              timezone: "Asia/Shanghai"
+            }
+          }
+        }
+      }
+    });
+
+    expect(current.configured).toBe(true);
+    expect(current.authReady).toBe(false);
+    expect(current.timezone).toBe("Asia/Shanghai");
   });
 
   it("prints OAuth next steps after setup", () => {

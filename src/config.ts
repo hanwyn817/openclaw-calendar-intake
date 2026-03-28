@@ -2,6 +2,9 @@ import os from "node:os";
 import path from "node:path";
 import type { PluginConfig } from "./types.js";
 
+export const PLUGIN_ID = "openclaw-calendar-intake";
+export const LEGACY_PLUGIN_ID = "calendar-intake";
+export const CLI_COMMAND = "calendar-intake";
 export const DEFAULT_TIMEZONE = "Asia/Shanghai";
 export const DEFAULT_CALENDAR_ID = "primary";
 export const DEFAULT_LOOKAHEAD_DAYS = 30;
@@ -38,14 +41,14 @@ export function isPluginConfigured(cfg: Partial<PluginConfig> | undefined): bool
 
 export function assertPluginConfigured(cfg: PluginConfig) {
   if (!cfg.configured) {
-    throw new Error("插件尚未完成初始化，请先运行 `openclaw calendar-intake setup`。");
+    throw new Error(`插件尚未完成初始化，请先运行 \`openclaw ${CLI_COMMAND} setup\`。`);
   }
 }
 
 export function assertPluginReady(cfg: PluginConfig) {
   assertPluginConfigured(cfg);
   if (!cfg.authReady) {
-    throw new Error("Google Calendar 尚未完成授权或授权不可用，请先运行 `calendar_intake_auth_init` / `calendar_intake_auth_exchange`，或执行 `openclaw calendar-intake doctor` 检查配置。");
+    throw new Error(`Google Calendar 尚未完成授权或授权不可用，请先运行 \`calendar_intake_auth_init\` / \`calendar_intake_auth_exchange\`，或执行 \`openclaw ${CLI_COMMAND} doctor\` 检查配置。`);
   }
 }
 
@@ -69,9 +72,9 @@ export function applyPluginConfigToOpenClawConfig<T>(
   const next = rootConfig as any;
   next.plugins ??= {};
   next.plugins.entries ??= {};
-  next.plugins.entries["calendar-intake"] ??= {};
-  next.plugins.entries["calendar-intake"].enabled = true;
-  next.plugins.entries["calendar-intake"].config = {
+  next.plugins.entries[PLUGIN_ID] ??= {};
+  next.plugins.entries[PLUGIN_ID].enabled = true;
+  next.plugins.entries[PLUGIN_ID].config = {
     configured: pluginConfig.configured,
     authReady: pluginConfig.authReady,
     calendarId: pluginConfig.calendarId,
@@ -83,7 +86,16 @@ export function applyPluginConfigToOpenClawConfig<T>(
     autoDeleteMode: pluginConfig.autoDeleteMode,
     dedupeWindowMinutes: pluginConfig.dedupeWindowMinutes
   };
+  delete next.plugins.entries[LEGACY_PLUGIN_ID];
   return next;
+}
+
+export function readPluginConfigFromOpenClawConfig(rootConfig: unknown): Partial<PluginConfig> {
+  const entries = (rootConfig as any)?.plugins?.entries;
+  return {
+    ...(entries?.[LEGACY_PLUGIN_ID]?.config ?? {}),
+    ...(entries?.[PLUGIN_ID]?.config ?? {})
+  } as Partial<PluginConfig>;
 }
 
 /**

@@ -1,4 +1,5 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
+import { CLI_COMMAND, PLUGIN_ID } from "./config.js";
 import { registerCalendarIntakeCli } from "./cli.js";
 import { authInitTool } from "./tools/auth-init.js";
 import { authExchangeTool } from "./tools/auth-exchange.js";
@@ -19,13 +20,13 @@ function bindTool(tool: any, api: any) {
 }
 
 export default definePluginEntry({
-  id: "calendar-intake",
+  id: PLUGIN_ID,
   name: "日历收件箱",
   description: "解析粘贴的会议通知，并管理 Google Calendar 日程",
   register(api) {
     api.registerCli(({ program }) => {
       registerCalendarIntakeCli(program);
-    }, { commands: ["calendar-intake"] });
+    }, { commands: [CLI_COMMAND] });
 
     // 逐个注册已绑定 API 的工具。
     api.registerTool(bindTool(authInitTool, api));

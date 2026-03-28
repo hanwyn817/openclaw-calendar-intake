@@ -1,7 +1,7 @@
 ---
 name: calendar_intake
 description: 解析粘贴的会议通知，并在 Google Calendar 中添加、查看、查找和删除日程。
-metadata: {"openclaw":{"requires":{"config":["plugins.entries.calendar-intake.config.configured","plugins.entries.calendar-intake.config.authReady"]}}}
+metadata: {"openclaw":{"requires":{"config":["plugins.entries.openclaw-calendar-intake.config.configured","plugins.entries.openclaw-calendar-intake.config.authReady"]}}}
 ---
 
 # 日历收件箱
