@@ -1,0 +1,66 @@
+{
+    "name": "@hanwyn817/openclaw-calendar-intake",
+    "version": "0.1.0",
+    "description": "用于解析粘贴会议通知并管理 Google Calendar 日程的 OpenClaw 插件",
+    "license": "UNLICENSED",
+    "homepage": "https://github.com/hanwyn817/openclaw-calendar-intake#readme",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/hanwyn817/openclaw-calendar-intake.git"
+    },
+    "bugs": {
+        "url": "https://github.com/hanwyn817/openclaw-calendar-intake/issues"
+    },
+    "keywords": [
+        "openclaw",
+        "openclaw-plugin",
+        "google-calendar",
+        "calendar",
+        "telegram",
+        "productivity"
+    ],
+    "type": "module",
+    "main": "dist/index.js",
+    "bin": {
+        "openclaw-calendar-intake-install": "./dist/install.js"
+    },
+    "files": [
+        "dist",
+        "skills",
+        "openclaw.plugin.json",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "clean": "rm -rf dist",
+        "release:check": "npm test && npm run build && npm pack --dry-run",
+        "test": "vitest run",
+        "prepublishOnly": "npm test && npm run clean && npm run build"
+    },
+    "engines": {
+        "node": ">=22"
+    },
+    "dependencies": {
+        "@sinclair/typebox": "^0.33.0",
+        "chrono-node": "^2.8.0",
+        "fast-fuzzy": "^1.12.0",
+        "googleapis": "^150.0.0",
+        "luxon": "^3.6.1",
+        "openclaw": "^2026.3.0"
+    },
+    "devDependencies": {
+        "@types/node": "^24.0.0",
+        "@types/luxon": "^3.4.2",
+        "commander": "^14.0.1",
+        "typescript": "^5.8.3",
+        "vitest": "^3.2.4"
+    },
+    "openclaw": {
+        "extensions": [
+            "./dist/index.js"
+        ]
+    },
+    "publishConfig": {
+        "access": "public"
+    }
+}

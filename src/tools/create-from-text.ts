@@ -1,0 +1,219 @@
+import { Type } from "@sinclair/typebox";
+import { fuzzy } from "fast-fuzzy";
+import { DateTime } from "luxon";
+import { assertPluginReady, getConfig } from "../config.js";
+import { formatParsedEventTime } from "../datetime.js";
+import { createEvent, describeEvent, listEvents } from "../google/calendar.js";
+import { buildParsedEventPreview } from "../parser.js";
+import type { CalendarEventLite, ParsedEvent, ParsedEventPreview } from "../types.js";
+
+function eventStartIso(event: CalendarEventLite): string | undefined {
+  return event.start?.dateTime ?? event.start?.date;
+}
+
+function eventEndIso(event: CalendarEventLite): string | undefined {
+  return event.end?.dateTime ?? event.end?.date;
+}
+
+function buildEventDayWindow(parsedEvent: ParsedEvent, timezone: string) {
+  if (parsedEvent.allDay) {
+    const start = DateTime.fromISO(parsedEvent.start, { zone: timezone }).startOf("day");
+    return {
+      start: start.toISO({ suppressMilliseconds: true, includeOffset: true })!,
+      end: start.endOf("day").toISO({ suppressMilliseconds: true, includeOffset: true })!
+    };
+  }
+
+  const start = DateTime.fromISO(parsedEvent.start, { setZone: true }).setZone(timezone).startOf("day");
+  return {
+    start: start.toISO({ suppressMilliseconds: true, includeOffset: true })!,
+    end: start.endOf("day").toISO({ suppressMilliseconds: true, includeOffset: true })!
+  };
+}
+
+function detectDedupeMatches(
+  parsedEvent: ParsedEvent,
+  items: CalendarEventLite[],
+  timezone: string,
+  dedupeWindowMinutes: number
+) {
+  const targetTitle = parsedEvent.title.trim().toLowerCase();
+  const targetStart = parsedEvent.allDay
+    ? null
+    : DateTime.fromISO(parsedEvent.start, { setZone: true }).setZone(timezone);
+
+  return items.filter((event) => {
+    const title = (event.summary ?? "").trim().toLowerCase();
+    if (!title) return false;
+    const similarity = fuzzy(targetTitle, title);
+    if (similarity < 0.88) return false;
+
+    const startRaw = eventStartIso(event);
+    if (!startRaw) return false;
+    if (parsedEvent.allDay) {
+      return startRaw.slice(0, 10) === parsedEvent.start.slice(0, 10);
+    }
+
+    const otherStart = DateTime.fromISO(startRaw, { setZone: true }).setZone(timezone);
+    return targetStart != null
+      && Math.abs(otherStart.diff(targetStart, "minutes").minutes) <= dedupeWindowMinutes;
+  });
+}
+
+function detectConflicts(parsedEvent: ParsedEvent, items: CalendarEventLite[], timezone: string) {
+  if (parsedEvent.allDay) return [];
+
+  const targetStart = DateTime.fromISO(parsedEvent.start, { setZone: true }).setZone(timezone);
+  const targetEnd = DateTime.fromISO(parsedEvent.end, { setZone: true }).setZone(timezone);
+
+  return items.filter((event) => {
+    const startRaw = eventStartIso(event);
+    const endRaw = eventEndIso(event);
+    if (!startRaw || !endRaw) return false;
+    if (!event.start?.dateTime || !event.end?.dateTime) return false;
+
+    const start = DateTime.fromISO(startRaw, { setZone: true }).setZone(timezone);
+    const end = DateTime.fromISO(endRaw, { setZone: true }).setZone(timezone);
+    return start < targetEnd && end > targetStart;
+  });
+}
+
+function buildPreviewText(
+  preview: ParsedEventPreview,
+  timezone: string,
+  dedupeMatches: CalendarEventLite[],
+  conflicts: CalendarEventLite[]
+) {
+  const lines = [
+    `标题：${preview.parsedEvent.title}`,
+    `时间：${preview.normalizedTimeText}`,
+    `地点：${preview.parsedEvent.location ?? "(未识别)"}`,
+    `自动创建：${preview.shouldAutoCreate ? "是" : "否"}`
+  ];
+
+  if (preview.confidenceReasons.length) {
+    lines.push(`原因：${preview.confidenceReasons.join("；")}`);
+  }
+  if (dedupeMatches.length) {
+    lines.push("疑似重复：");
+    lines.push(...dedupeMatches.map((event, index) => `${index + 1}. ${describeEvent(event, timezone)}`));
+  }
+  if (conflicts.length) {
+    lines.push("时间冲突：");
+    lines.push(...conflicts.map((event, index) => `${index + 1}. ${describeEvent(event, timezone)}`));
+  }
+  if (preview.clarificationPrompt) {
+    lines.push(`追问：${preview.clarificationPrompt}`);
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * 工具：calendar_intake_create_from_text
+ *
+ * 解析原始会议通知并创建 Google Calendar 事项。
+ * 当 dryRun 为 true 时，只返回解析结果，不实际写入日历。
+ */
+export const createFromTextTool = {
+  name: "calendar_intake_create_from_text",
+  description: "解析原始会议通知文本，并创建 Google Calendar 日程。",
+  parameters: Type.Object({
+    text: Type.String(),
+    dryRun: Type.Optional(Type.Boolean())
+  }),
+  async execute(_id: string, params: { text: string; dryRun?: boolean }) {
+    const api = (this as any).api;
+    const cfg = getConfig(api);
+    assertPluginReady(cfg);
+    const basePreview = buildParsedEventPreview(params.text, cfg.timezone);
+    const window = buildEventDayWindow(basePreview.parsedEvent, cfg.timezone);
+    const nearby = await listEvents(
+      cfg.credentialsPath,
+      cfg.tokenPath,
+      cfg.calendarId,
+      window.start,
+      window.end,
+      cfg.timezone
+    );
+    const dedupeMatches = detectDedupeMatches(
+      basePreview.parsedEvent,
+      nearby,
+      cfg.timezone,
+      cfg.dedupeWindowMinutes
+    );
+    const conflicts = detectConflicts(basePreview.parsedEvent, nearby, cfg.timezone);
+    const shouldAutoCreate = basePreview.shouldAutoCreate && dedupeMatches.length === 0 && conflicts.length === 0;
+    const preview = {
+      ...basePreview,
+      shouldAutoCreate,
+      confidenceReasons: [
+        ...basePreview.confidenceReasons,
+        ...(dedupeMatches.length ? ["检测到疑似重复事项"] : []),
+        ...(conflicts.length ? ["检测到时间冲突"] : [])
+      ],
+      clarificationPrompt: basePreview.clarificationPrompt
+        ?? (dedupeMatches.length
+          ? "我发现疑似重复事项，是否仍然要创建新的日程？"
+          : conflicts.length
+            ? "这个时间段已有其它日程，是否仍然要继续创建？"
+            : undefined)
+    };
+    const text = buildPreviewText(preview, cfg.timezone, dedupeMatches, conflicts);
+
+    if (params.dryRun) {
+      return {
+        structuredContent: {
+          ...preview,
+          dedupeMatches,
+          conflicts
+        },
+        content: [
+          {
+            type: "text",
+            text
+          }
+        ]
+      };
+    }
+
+    if (!preview.shouldAutoCreate) {
+      return {
+        structuredContent: {
+          ...preview,
+          dedupeMatches,
+          conflicts,
+          blocked: true
+        },
+        content: [
+          {
+            type: "text",
+            text: `${text}\n\n当前不会直接创建，请先完成确认。`
+          }
+        ]
+      };
+    }
+
+    const created = await createEvent(
+      cfg.credentialsPath,
+      cfg.tokenPath,
+      cfg.calendarId,
+      preview.parsedEvent,
+      cfg.timezone
+    );
+
+    return {
+      structuredContent: {
+        createdEventId: created.id ?? null,
+        summary: created.summary ?? preview.parsedEvent.title,
+        normalizedTimeText: formatParsedEventTime(preview.parsedEvent, cfg.timezone)
+      },
+      content: [
+        {
+          type: "text",
+          text: `已添加日程：${created.summary ?? preview.parsedEvent.title}\n时间：${formatParsedEventTime(preview.parsedEvent, cfg.timezone)}\n地点：${preview.parsedEvent.location ?? "(未识别)"}`
+        }
+      ]
+    };
+  }
+};

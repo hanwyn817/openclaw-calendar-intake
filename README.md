@@ -1,0 +1,322 @@
+# OpenClaw Calendar Intake
+
+这是一个面向 OpenClaw 的日历插件，用来把你从邮件、微信、IM 等渠道收到的原始会议通知，直接解析并写入 Google Calendar。
+
+目标工作流：
+
+- 用户把原始通知直接发给 OpenClaw
+- 可以直接说 `添加日程`、`帮我加到日历`、`把这段通知加到日历`
+- 插件自动解析标题、时间、地点、备注
+- 高置信度时直接创建日程，低置信度时只追问一个最短问题
+- 支持查看日程、查找候选事项、删除事项
+- 创建前会检查疑似重复和时间冲突，删除前默认只在精确匹配时自动删除
+
+## 安装
+
+安装前提：
+
+- OpenClaw CLI 版本不低于 `2026.3.0`
+- Node.js 版本不低于 `22`
+
+### 方式一：一步安装并初始化
+
+推荐直接使用：
+
+```bash
+npx @hanwyn817/openclaw-calendar-intake install
+```
+
+如果你希望 setup 全程接受默认值，可使用：
+
+```bash
+npx @hanwyn817/openclaw-calendar-intake install --yes
+```
+
+如果你希望安装完成后顺手重启网关：
+
+```bash
+npx @hanwyn817/openclaw-calendar-intake install --yes --restart
+```
+
+这个包装命令会依次执行：
+
+1. `openclaw plugins install @hanwyn817/openclaw-calendar-intake --pin`
+2. `openclaw calendar-intake setup`
+3. 提示或执行 `openclaw gateway restart`
+
+### 方式二：使用 OpenClaw 原生命令安装
+
+```bash
+openclaw plugins install @hanwyn817/openclaw-calendar-intake --pin
+openclaw calendar-intake setup
+openclaw gateway restart
+```
+
+## 更新
+
+后续更新插件可直接使用：
+
+```bash
+openclaw plugins update calendar-intake
+```
+
+## 首次初始化
+
+安装后运行：
+
+```bash
+openclaw calendar-intake setup
+```
+
+初始化向导的默认值如下：
+
+- `credentialsPath`: `~/.openclaw/secrets/google-calendar-credentials.json`
+- `tokenPath`: `~/.openclaw/secrets/google-calendar-token.json`
+- `calendarId`: `primary`
+- `timezone`: `Asia/Shanghai`
+- `lookaheadDays`: `30`
+- `lookbackDays`: `7`
+- `autoDeleteMode`: `exact_only`
+- `dedupeWindowMinutes`: `30`
+
+所有问题都支持直接回车接受默认值。
+
+如果你想无交互直接写入默认配置：
+
+```bash
+openclaw calendar-intake setup --yes
+```
+
+## Google OAuth 授权
+
+首次 setup 完成后，还需要做一次 Google OAuth 授权。
+
+注意：
+
+- `setup` 完成只表示基础配置已写入
+- 只有 `authReady=true` 后，插件技能才会正常加载
+- 建议每次授权完成后执行一次 `openclaw calendar-intake doctor`
+- 也可以在 OpenClaw 对话中调用 `calendar_intake_auth_status` 查看当前授权状态
+
+### 第一步：生成授权链接
+
+在 OpenClaw 对话中调用：
+
+- `calendar_intake_auth_init`
+
+它会返回一个 Google 授权链接。
+
+### 第二步：交换 token
+
+1. 在本地浏览器打开授权链接
+2. 完成 Google 授权
+3. 复制回调 URL 中的 `code` 参数，或直接复制整段回调 URL
+4. 在 OpenClaw 对话中调用：
+
+- `calendar_intake_auth_exchange`
+
+并把 `code` 或完整回调 URL 作为参数传入
+
+成功后，插件会把 token 保存到 `tokenPath`。
+
+### 第三步：执行健康检查
+
+```bash
+openclaw calendar-intake doctor
+```
+
+或者在 OpenClaw 对话中调用：
+
+- `calendar_intake_auth_status`
+
+如果输出里 `authReady: true`，说明插件已经可以安全加载技能。
+
+## 配置项
+
+- `configured`：是否已完成首次 setup 初始化
+- `authReady`：是否已完成 OAuth 授权并通过基本可用性检查
+- `calendarId`：目标 Google Calendar ID，通常用 `primary`
+- `timezone`：默认时区，建议固定为 `Asia/Shanghai`
+- `credentialsPath`：Google OAuth 客户端凭据文件绝对路径
+- `tokenPath`：Google OAuth token 保存路径
+- `lookaheadDays`：删除/查找时向未来搜索的天数
+- `lookbackDays`：删除/查找时向过去搜索的天数
+- `autoDeleteMode`：自动删除策略，默认 `exact_only`
+- `dedupeWindowMinutes`：创建前识别重复事项的时间窗口
+
+插件技能会在 `configured=true` 且 `authReady=true` 后才加载，避免未初始化或未授权时误触发。
+
+## 使用方式
+
+### 添加日程
+
+把原始通知直接贴给 OpenClaw，可以在最前面加一句 `添加日程`，也可以用更自然的话说“帮我加到日历”。
+
+示例：
+
+```text
+添加日程
+
+主题：供应商会议
+时间：明天下午3点到4点
+地点：腾讯会议
+备注：讨论审计安排
+```
+
+也可以直接粘贴非结构化原文，例如邮件通知、群消息、会议邀请等。插件会尽量保留原始通知内容，并写入 Google Calendar 的 description 字段。
+
+创建前的行为：
+
+- 会回显解析后的绝对时间，例如 `2026-03-28 15:00 - 16:00 (Asia/Shanghai)`
+- 会检查同日近似标题的疑似重复事项
+- 会检查时间冲突
+- 如果不是高置信度场景，不会直接创建，而是返回一个最短追问
+
+### 查看日程
+
+支持以下自然语言触发：
+
+```text
+查看今日日程
+查看明日日程
+查看本周日程
+查看下周日程
+查看本月日程
+查看 4 月 1 日日程
+查看 下周三到下周五的日程
+```
+
+### 删除日程
+
+示例：
+
+```text
+删除日程 供应商会议 明天下午3点
+```
+
+删除流程规则：
+
+- 先搜索最近和未来一段时间内的候选事项
+- 默认只在标题和日期/时间都足够精确时才会自动删除
+- 如果有多个候选，会先展示候选列表，再让用户选择
+- 候选展示使用短编号，不要求用户理解 Google eventId
+
+## 默认时间语义
+
+插件默认按中国北京时间 `Asia/Shanghai` 解释如下输入：
+
+- `明天下午3点`
+- `下周一 10:30`
+- `本周五晚上7点`
+
+即使 OpenClaw 跑在海外 VPS 上，只要插件配置仍为 `Asia/Shanghai`，这些时间也会按北京时间写入 Google Calendar，而不是按服务器本地时区解释。
+
+## 本地验证
+
+```bash
+npm test
+npm run build
+npm pack --dry-run
+```
+
+## 发布
+
+发布前建议执行：
+
+```bash
+npm run release:check
+```
+
+### 手动发布
+
+如果你暂时不想用 GitHub Actions，可以手动发布：
+
+```bash
+npm publish --access public
+```
+
+### GitHub Actions 自动发布
+
+仓库中已经包含自动发布工作流：
+
+- [publish.yml](/Users/hanwyn/Project/openclaw-calendar-intake/.github/workflows/publish.yml)
+
+它会在你推送形如 `v0.1.0` 的 Git tag 时自动执行：
+
+1. `npm ci`
+2. `npm test`
+3. `npm run build`
+4. `npm pack --dry-run`
+5. `npm publish --access public`
+
+触发规则可以简单理解为：
+
+- `git push origin main` 只会同步代码，不会触发这条发布流水线
+- 只有推送形如 `v0.1.0` 的 tag，才会触发一次自动发布
+- 就算你本地已经连续 commit 很多次，只要没有推送新的 `v*` tag，就不会重复发布
+- 如果一次推送多个新的 `v*` tag，则会分别触发多次发布
+
+你需要先在 GitHub 仓库里配置一个 Secret：
+
+- 名称：`NPM_TOKEN`
+- 值：你在 npm 网站创建的 Access Token
+
+### 什么是“打一个版本标签”
+
+“打版本标签”就是在 Git 仓库里给某个提交打一个明确的发布标记，例如：
+
+- `v0.1.0`
+- `v0.1.1`
+- `v0.2.0`
+
+它的作用是告诉 GitHub Actions：
+
+- “这一版代码就是我要发布的版本”
+
+### 应该什么时候打版本标签
+
+推荐顺序固定为：
+
+1. 代码已经完成并提交到 GitHub
+2. 你已经把 `package.json` 里的 `version` 改成准备发布的版本号
+3. 本地先跑通过：
+
+```bash
+npm test
+npm run build
+```
+
+4. 然后再打 tag 并推送
+
+例如你准备发布 `0.1.0`：
+
+```bash
+git add .
+git commit -m "release: v0.1.0"
+git tag v0.1.0
+git push origin main
+git push origin v0.1.0
+```
+
+这里有一个重要规则：
+
+- `package.json` 中的版本必须是 `0.1.0`
+- Git tag 必须是 `v0.1.0`
+
+工作流里已经做了这个校验；如果两者不一致，自动发布会直接失败。
+
+### 什么时候该升哪个版本号
+
+可以先按这个简单规则：
+
+- `0.1.1`：只修 bug，不改主要用法
+- `0.2.0`：增加新功能，但不破坏现有安装/使用方式
+- `1.0.0`：你觉得这个插件已经稳定，可以正式对外使用
+
+## 已知边界
+
+- 当前版本只支持单个 Google Calendar 写入
+- 不做双向同步
+- 不处理复杂重复日程的完整编辑能力
+- Telegram 到 OpenClaw 的消息转发链路需要你自己的 OpenClaw 部署侧已经具备
+- 当前 npm 包元数据默认使用仓库 `https://github.com/hanwyn817/openclaw-calendar-intake`

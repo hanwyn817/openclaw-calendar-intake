@@ -1,0 +1,118 @@
+{
+    "id": "calendar-intake",
+    "version": "0.1.0",
+    "name": "日历收件箱",
+    "description": "解析粘贴的会议通知，并管理 Google Calendar 日程",
+    "skills": [
+        "./skills"
+    ],
+    "uiHints": {
+        "configured": {
+            "label": "已完成初始化",
+            "help": "由 setup 向导自动写入。表示基础配置已写入。",
+            "advanced": true
+        },
+        "authReady": {
+            "label": "授权可用",
+            "help": "表示 credentials 和 token 已准备好，且插件可安全加载技能。",
+            "advanced": true
+        },
+        "credentialsPath": {
+            "label": "Google OAuth 凭据文件",
+            "help": "Desktop app OAuth client 的 credentials.json 绝对路径。",
+            "placeholder": "~/.openclaw/secrets/google-calendar-credentials.json"
+        },
+        "tokenPath": {
+            "label": "Google OAuth Token 文件",
+            "help": "Google 授权完成后保存 token 的绝对路径。",
+            "placeholder": "~/.openclaw/secrets/google-calendar-token.json"
+        },
+        "calendarId": {
+            "label": "目标日历 ID",
+            "placeholder": "primary"
+        },
+        "timezone": {
+            "label": "默认时区",
+            "placeholder": "Asia/Shanghai"
+        },
+        "lookaheadDays": {
+            "label": "向未来搜索天数"
+        },
+        "lookbackDays": {
+            "label": "向过去搜索天数"
+        },
+        "autoDeleteMode": {
+            "label": "自动删除策略",
+            "help": "默认仅在精确匹配标题和日期/时间时才自动删除。"
+        },
+        "dedupeWindowMinutes": {
+            "label": "去重时间窗口（分钟）",
+            "help": "创建日程时用于识别重复事项的时间窗口。"
+        }
+    },
+    "configSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "configured": {
+                "type": "boolean",
+                "description": "是否已完成首次 setup 初始化。",
+                "default": false
+            },
+            "authReady": {
+                "type": "boolean",
+                "description": "是否已完成 OAuth 授权并具备可用 token。",
+                "default": false
+            },
+            "calendarId": {
+                "type": "string",
+                "description": "目标 Google Calendar ID。主日历通常使用 'primary'。",
+                "default": "primary"
+            },
+            "timezone": {
+                "type": "string",
+                "description": "当原始文本未明确指定时区时使用的默认时区。",
+                "default": "Asia/Shanghai"
+            },
+            "tokenPath": {
+                "type": "string",
+                "description": "OAuth token JSON 文件的绝对路径。"
+            },
+            "credentialsPath": {
+                "type": "string",
+                "description": "Google OAuth 客户端凭据 JSON 文件的绝对路径。"
+            },
+            "lookaheadDays": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 365,
+                "default": 30,
+                "description": "执行查找或删除匹配时，向未来搜索的天数。"
+            },
+            "lookbackDays": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 365,
+                "default": 7,
+                "description": "执行查找或删除匹配时，向过去搜索的天数。"
+            },
+            "autoDeleteMode": {
+                "type": "string",
+                "enum": [
+                    "never",
+                    "exact_only",
+                    "heuristic"
+                ],
+                "default": "exact_only",
+                "description": "删除事项时的自动删除策略。"
+            },
+            "dedupeWindowMinutes": {
+                "type": "integer",
+                "minimum": 5,
+                "maximum": 720,
+                "default": 30,
+                "description": "创建事项时用于识别重复事项的时间窗口（分钟）。"
+            }
+        }
+    }
+}
