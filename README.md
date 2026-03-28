@@ -69,14 +69,6 @@ node dist/install.js install --yes --restart
 
 脚本会优先把当前工作目录视为插件仓库根目录；如果当前目录不是仓库根目录，则回退到脚本文件所在包目录的上一级。
 
-### 方式三：备用 npm 安装
-
-```bash
-npx @hanwyn817/openclaw-calendar-intake install --yes --restart
-```
-
-这个路径仅作为兼容方案保留。默认推荐仍然是 Git 直装。
-
 如果你想直接使用 OpenClaw 原生命令，也可以在已构建好的本地仓库目录执行：
 
 ```bash
@@ -332,102 +324,6 @@ openclaw calendar-intake doctor
 npm test
 npm run build
 ```
-
-## 可选：npm 兼容发布
-
-默认 Git 部署不需要发布 npm 包。只有在你仍然想保留 npm 安装兼容性时，才需要下面这些步骤。
-
-发布前建议执行：
-
-```bash
-npm run release:check
-```
-
-### 手动发布
-
-如果你暂时不想用 GitHub Actions，可以手动发布：
-
-```bash
-npm publish --access public
-```
-
-### GitHub Actions 自动发布
-
-仓库中已经包含自动发布工作流：
-
-- [publish.yml](/Users/hanwyn/Project/openclaw-calendar-intake/.github/workflows/publish.yml)
-
-它会在你推送形如 `v0.1.0` 的 Git tag 时自动执行：
-
-1. `npm ci`
-2. `npm test`
-3. `npm run build`
-4. `npm pack --dry-run`
-5. `npm publish --access public`
-
-触发规则可以简单理解为：
-
-- `git push origin main` 只会同步代码，不会触发这条发布流水线
-- 只有推送形如 `v0.1.0` 的 tag，才会触发一次自动发布
-- 就算你本地已经连续 commit 很多次，只要没有推送新的 `v*` tag，就不会重复发布
-- 如果一次推送多个新的 `v*` tag，则会分别触发多次发布
-
-你需要先在 GitHub 仓库里配置一个 Secret：
-
-- 名称：`NPM_TOKEN`
-- 值：你在 npm 网站创建的 Access Token
-
-### 什么是“打一个版本标签”
-
-“打版本标签”就是在 Git 仓库里给某个提交打一个明确的发布标记，例如：
-
-- `v0.1.0`
-- `v0.1.1`
-- `v0.2.0`
-
-它的作用是告诉 GitHub Actions：
-
-- “这一版代码就是我要发布的版本”
-
-### 应该什么时候打版本标签
-
-推荐顺序固定为：
-
-1. 代码已经完成并提交到 GitHub
-2. 你已经把 `package.json` 里的 `version` 改成准备发布的版本号
-3. 本地先跑通过：
-
-```bash
-npm test
-npm run build
-```
-
-4. 然后再打 tag 并推送
-
-例如你准备发布 `0.1.0`：
-
-```bash
-git add .
-git commit -m "release: v0.1.0"
-git tag v0.1.0
-git push origin main
-git push origin v0.1.0
-```
-
-这里有一个重要规则：
-
-- `package.json` 中的版本必须是 `0.1.0`
-- Git tag 必须是 `v0.1.0`
-
-工作流里已经做了这个校验；如果两者不一致，自动发布会直接失败。
-
-### 什么时候该升哪个版本号
-
-可以先按这个简单规则：
-
-- `0.1.1`：只修 bug，不改主要用法
-- `0.2.0`：增加新功能，但不破坏现有安装/使用方式
-- `1.0.0`：你觉得这个插件已经稳定，可以正式对外使用
 
 ## 已知边界
 

@@ -21,21 +21,10 @@
     ],
     "type": "module",
     "main": "dist/index.js",
-    "bin": {
-        "openclaw-calendar-intake": "./dist/install.js"
-    },
-    "files": [
-        "dist",
-        "skills",
-        "openclaw.plugin.json",
-        "README.md"
-    ],
     "scripts": {
         "build": "tsc -p tsconfig.json",
         "clean": "rm -rf dist",
-        "release:check": "npm test && npm run clean && npm run build",
-        "test": "vitest run",
-        "prepublishOnly": "npm test && npm run clean && npm run build"
+        "test": "vitest run"
     },
     "engines": {
         "node": ">=22"
@@ -59,8 +48,5 @@
         "extensions": [
             "./dist/index.js"
         ]
-    },
-    "publishConfig": {
-        "access": "public"
     }
 }
