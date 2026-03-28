@@ -20,45 +20,83 @@
 
 ### 方式一：一步安装并初始化
 
-推荐直接使用：
+推荐在 OpenClaw 所在机器上直接用 Git 安装：
 
 ```bash
-npx @hanwyn817/openclaw-calendar-intake install
+git clone https://github.com/hanwyn817/openclaw-calendar-intake /opt/openclaw-calendar-intake
+cd /opt/openclaw-calendar-intake
+npm install
+npm run build
+openclaw plugins install -l /opt/openclaw-calendar-intake
+openclaw calendar-intake setup
+openclaw gateway restart
+```
+
+这种方式的特点是：
+
+- 不依赖 npm registry 发布
+- 插件直接从 Git 工作树本地目录加载
+- 后续更新只需要 `git pull + npm install + npm run build + openclaw gateway restart`
+
+### 方式二：在仓库内使用安装脚本
+
+如果你已经把仓库 clone 到本机，也可以在仓库根目录执行：
+
+```bash
+npm install
+npm run build
+node dist/install.js install
 ```
 
 如果你希望 setup 全程接受默认值，可使用：
 
 ```bash
-npx @hanwyn817/openclaw-calendar-intake install --yes
+node dist/install.js install --yes
 ```
 
 如果你希望安装完成后顺手重启网关：
 
 ```bash
-npx @hanwyn817/openclaw-calendar-intake install --yes --restart
+node dist/install.js install --yes --restart
 ```
 
 这个包装命令会依次执行：
 
-1. `openclaw plugins install @hanwyn817/openclaw-calendar-intake --pin`
+1. `openclaw plugins install -l <repo-root>`
 2. `openclaw calendar-intake setup`
 3. 提示或执行 `openclaw gateway restart`
 
-### 方式二：使用 OpenClaw 原生命令安装
+脚本会优先把当前工作目录视为插件仓库根目录；如果当前目录不是仓库根目录，则回退到脚本文件所在包目录的上一级。
+
+### 方式三：备用 npm 安装
 
 ```bash
-openclaw plugins install @hanwyn817/openclaw-calendar-intake --pin
+npx @hanwyn817/openclaw-calendar-intake install --yes --restart
+```
+
+这个路径仅作为兼容方案保留。默认推荐仍然是 Git 直装。
+
+如果你想直接使用 OpenClaw 原生命令，也可以在已构建好的本地仓库目录执行：
+
+```bash
+openclaw plugins install -l /opt/openclaw-calendar-intake
 openclaw calendar-intake setup
 openclaw gateway restart
 ```
 
 ## 更新
 
-后续更新插件可直接使用：
+后续更新插件的推荐方式：
 
 ```bash
-openclaw plugins update @hanwyn817/openclaw-calendar-intake
+cd /opt/openclaw-calendar-intake
+git pull
+npm install
+npm run build
+openclaw gateway restart
 ```
+
+`openclaw plugins update` 不再作为默认更新路径；Git 本地安装的更新责任由仓库自身的 `git pull + build + restart` 负责。
 
 ## 首次初始化
 
@@ -277,10 +315,11 @@ openclaw calendar-intake doctor
 ```bash
 npm test
 npm run build
-npm pack --dry-run
 ```
 
-## 发布
+## 可选：npm 兼容发布
+
+默认 Git 部署不需要发布 npm 包。只有在你仍然想保留 npm 安装兼容性时，才需要下面这些步骤。
 
 发布前建议执行：
 
@@ -380,4 +419,4 @@ git push origin v0.1.0
 - 不做双向同步
 - 不处理复杂重复日程的完整编辑能力
 - Telegram 到 OpenClaw 的消息转发链路需要你自己的 OpenClaw 部署侧已经具备
-- 当前 npm 包元数据默认使用仓库 `https://github.com/hanwyn817/openclaw-calendar-intake`
+- 默认运维方式已经切换为 Git 本地目录安装，而不是依赖 npm registry 分发

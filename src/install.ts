@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const PACKAGE_NAME = "@hanwyn817/openclaw-calendar-intake";
 export const MIN_OPENCLAW_VERSION = "2026.3.0";
 
 function compareVersions(a: string, b: string): number {
@@ -61,12 +62,35 @@ function ensureOpenClawReady() {
   }
 }
 
+function hasPluginManifest(dir: string): boolean {
+  return existsSync(path.join(dir, "openclaw.plugin.json"));
+}
+
+export function resolvePluginRoot(options: { cwd?: string; entryFile?: string } = {}): string {
+  const cwd = path.resolve(options.cwd ?? process.cwd());
+  if (hasPluginManifest(cwd)) {
+    return cwd;
+  }
+
+  const entryDir = path.dirname(options.entryFile ?? fileURLToPath(import.meta.url));
+  const scriptRoot = path.resolve(entryDir, "..");
+  if (hasPluginManifest(scriptRoot)) {
+    return scriptRoot;
+  }
+
+  throw new Error(
+    "未找到插件根目录：当前目录及脚本上级目录都不存在 `openclaw.plugin.json`。请在仓库根目录执行，或从构建后的 `dist/install.js` 运行。"
+  );
+}
+
 function printUsage() {
   console.log([
     "用法：",
-    "  npx @hanwyn817/openclaw-calendar-intake install",
-    "  npx @hanwyn817/openclaw-calendar-intake install --yes",
-    "  npx @hanwyn817/openclaw-calendar-intake install --restart"
+    "  npm install",
+    "  npm run build",
+    "  node dist/install.js install",
+    "  node dist/install.js install --yes",
+    "  node dist/install.js install --yes --restart"
   ].join("\n"));
 }
 
@@ -79,9 +103,11 @@ export async function main(argv: string[]) {
 
   const yes = rest.includes("--yes");
   const restart = rest.includes("--restart");
+  const pluginRoot = resolvePluginRoot();
 
   ensureOpenClawReady();
-  runCommand("openclaw", ["plugins", "install", PACKAGE_NAME, "--pin"]);
+  console.log(`从本地仓库安装插件：${pluginRoot}`);
+  runCommand("openclaw", ["plugins", "install", "-l", pluginRoot]);
 
   const setupArgs = ["calendar-intake", "setup"];
   if (yes) {
@@ -92,7 +118,11 @@ export async function main(argv: string[]) {
   if (restart) {
     runCommand("openclaw", ["gateway", "restart"]);
   } else {
-    console.log("安装和初始化已完成。请执行 `openclaw gateway restart` 让插件生效。");
+    console.log([
+      "安装和初始化已完成。",
+      "请执行 `openclaw gateway restart` 让插件生效。",
+      "后续更新请在仓库目录执行：`git pull && npm install && npm run build && openclaw gateway restart`。"
+    ].join("\n"));
   }
 }
 

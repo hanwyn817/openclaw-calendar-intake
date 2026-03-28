@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { DateTime } from "luxon";
 import {
   applyPluginConfigToOpenClawConfig,
@@ -11,6 +14,7 @@ import {
 import { normalizeAuthorizationCode } from "../src/google/auth.js";
 import {
   MIN_OPENCLAW_VERSION,
+  resolvePluginRoot,
   validateOpenClawVersion
 } from "../src/install.js";
 import { buildParsedEventPreview, parseEventFromText } from "../src/parser.js";
@@ -214,5 +218,34 @@ describe("installer checks", () => {
 
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("低于所需");
+  });
+
+  it("prefers the current working directory when it contains the plugin manifest", () => {
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "calendar-intake-cwd-"));
+    writeFileSync(path.join(cwd, "openclaw.plugin.json"), "{}");
+
+    expect(resolvePluginRoot({ cwd, entryFile: "/tmp/dist/install.js" })).toBe(cwd);
+  });
+
+  it("falls back to the script parent directory when cwd is not the repo root", () => {
+    const repoRoot = mkdtempSync(path.join(os.tmpdir(), "calendar-intake-repo-"));
+    const nestedCwd = path.join(repoRoot, "nested");
+    const entryFile = path.join(repoRoot, "dist", "install.js");
+
+    writeFileSync(path.join(repoRoot, "openclaw.plugin.json"), "{}");
+    mkdirSync(nestedCwd);
+    mkdirSync(path.dirname(entryFile));
+
+    expect(resolvePluginRoot({ cwd: nestedCwd, entryFile })).toBe(repoRoot);
+  });
+
+  it("throws when no plugin manifest can be found", () => {
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "calendar-intake-missing-cwd-"));
+    const entryDir = mkdtempSync(path.join(os.tmpdir(), "calendar-intake-missing-entry-"));
+    const entryFile = path.join(entryDir, "dist", "install.js");
+
+    mkdirSync(path.dirname(entryFile));
+
+    expect(() => resolvePluginRoot({ cwd, entryFile })).toThrow("openclaw.plugin.json");
   });
 });

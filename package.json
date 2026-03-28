@@ -1,7 +1,7 @@
 {
     "name": "@hanwyn817/openclaw-calendar-intake",
     "version": "0.1.1",
-    "description": "用于解析粘贴会议通知并管理 Google Calendar 日程的 OpenClaw 插件",
+    "description": "支持 Git 仓库本地安装的 OpenClaw 日历插件，用于解析会议通知并管理 Google Calendar 日程",
     "license": "UNLICENSED",
     "homepage": "https://github.com/hanwyn817/openclaw-calendar-intake#readme",
     "repository": {
@@ -33,7 +33,7 @@
     "scripts": {
         "build": "tsc -p tsconfig.json",
         "clean": "rm -rf dist",
-        "release:check": "npm test && npm run build && npm pack --dry-run",
+        "release:check": "npm test && npm run clean && npm run build",
         "test": "vitest run",
         "prepublishOnly": "npm test && npm run clean && npm run build"
     },
