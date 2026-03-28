@@ -6,8 +6,8 @@
 
 - 用户把原始通知直接发给 OpenClaw
 - 可以直接说 `添加日程`、`帮我加到日历`、`把这段通知加到日历`
-- OpenClaw 对话层先抽取标题、时间、地点、备注等结构化字段
-- 插件只负责把 `timeText` 规范化为最终时间，并执行校验、确认冻结、去重、冲突检查和创建
+- OpenClaw 对话层先抽取标题、地点、备注和最终结构化时间字段
+- 插件只负责校验结构化事件、确认冻结、去重、冲突检查和创建
 - 高置信度时直接创建日程，低置信度时只追问一个最短问题
 - 支持查看日程、查找候选事项、删除事项
 - 创建前会检查疑似重复和时间冲突，删除前默认只在精确匹配时自动删除
@@ -252,6 +252,20 @@ openclaw calendar-intake doctor
 
 把原始通知直接贴给 OpenClaw，可以在最前面加一句 `添加日程`，也可以用更自然的话说“帮我加到日历”。对话层模型会先抽取结构化字段，再调用插件工具创建。
 
+创建工具 `calendar_intake_create_event` 期望对话层直接提供：
+
+- `sourceText`
+- `title`
+- `allDay`
+- `start`
+- `end`
+- 可选：`location`、`description`、`confidence`、`issues`
+
+时间字段约定：
+
+- 定时事件：`start/end` 使用带时区偏移的 RFC3339，例如 `2026-03-28T15:00:00+08:00`
+- 全天事件：`start/end` 使用 `YYYY-MM-DD`，其中 `end` 为 Google Calendar 的 exclusive end date
+
 示例：
 
 ```text
@@ -267,7 +281,7 @@ openclaw calendar-intake doctor
 
 创建前的行为：
 
-- 会回显解析后的绝对时间，例如 `2026-03-28 15:00 - 16:00 (Asia/Shanghai)`
+- 会回显已校验的最终时间，例如 `2026-03-28 15:00 - 16:00 (Asia/Shanghai)`
 - 如果对话层给出的 `confidence` 缺失或偏低，或 `issues` 非空，不会直接创建
 - 会检查同日近似标题的疑似重复事项
 - 会检查时间冲突
@@ -304,13 +318,13 @@ openclaw calendar-intake doctor
 
 ## 默认时间语义
 
-插件默认按中国北京时间 `Asia/Shanghai` 解释如下输入：
+插件仍然按中国北京时间 `Asia/Shanghai` 解释如下自然语言查询：
 
 - `明天下午3点`
 - `下周一 10:30`
 - `本周五晚上7点`
 
-即使 OpenClaw 跑在海外 VPS 上，只要插件配置仍为 `Asia/Shanghai`，这些时间也会按北京时间写入 Google Calendar，而不是按服务器本地时区解释。
+这部分只用于查看、查找、删除等自然语言查询；创建链路不再把自然语言时间隐式解析后写入 Google Calendar。即使 OpenClaw 跑在海外 VPS 上，只要插件配置仍为 `Asia/Shanghai`，这些查询时间也会按北京时间解释，而不是按服务器本地时区解释。
 
 ## 本地验证
 

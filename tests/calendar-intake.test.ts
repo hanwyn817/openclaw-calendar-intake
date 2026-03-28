@@ -11,6 +11,7 @@ import {
   PLUGIN_ID,
   readPluginConfigFromOpenClawConfig
 } from "../src/config.js";
+import { parseDateTimeInZone } from "../src/datetime.js";
 import { normalizeAuthorizationCode } from "../src/google/auth.js";
 import {
   MIN_OPENCLAW_VERSION,
@@ -20,20 +21,43 @@ import {
 import { scoreEventMatch } from "../src/scoring.js";
 import { formatSetupCompletionMessage } from "../src/cli.js";
 import { autoDeleteCandidateId, buildFindQuery, findCandidateByChoiceId } from "../src/tools/find-events.js";
-import { applyExtractedOverrides, buildCreatePreview } from "../src/tools/create-from-text.js";
+import { applyEventOverrides, buildCreatePreview } from "../src/tools/create-event.js";
 import { rangeToWindow } from "../src/tools/list-events.js";
 import type { CalendarEventLite } from "../src/types.js";
 
 const TIMEZONE = "Asia/Shanghai";
 
+describe("parseDateTimeInZone", () => {
+  it("parses explicit ISO-like date ranges with weekday annotations", () => {
+    const parsed = parseDateTimeInZone("2026-03-31（周二）15:30 - 16:00", TIMEZONE);
+
+    expect(parsed?.isDateOnly).toBe(false);
+    expect(parsed?.start.toISO()).toBe("2026-03-31T15:30:00.000+08:00");
+    expect(parsed?.end?.toISO()).toBe("2026-03-31T16:00:00.000+08:00");
+  });
+
+  it("prefers corrected time ranges embedded in warning text", () => {
+    const parsed = parseDateTimeInZone(
+      "2026-03-31（周二）15:30 - 16:30（⚠️ 原为 15:30-16:00）",
+      TIMEZONE
+    );
+
+    expect(parsed?.isDateOnly).toBe(false);
+    expect(parsed?.start.toISO()).toBe("2026-03-31T15:30:00.000+08:00");
+    expect(parsed?.end?.toISO()).toBe("2026-03-31T16:00:00.000+08:00");
+  });
+});
+
 describe("buildCreatePreview", () => {
-  it("builds a normalized event from structured extraction", () => {
+  it("builds a normalized timed event from structured fields", () => {
     const preview = buildCreatePreview(
       {
         sourceText: "原始通知",
         title: "FDA产量上报相关培训",
         location: "313会议室",
-        timeText: "2026年3月31日15:30-16:00",
+        allDay: false,
+        start: "2026-03-31T15:30:00+08:00",
+        end: "2026-03-31T16:00:00+08:00",
         confidence: 0.92
       },
       TIMEZONE
@@ -43,31 +67,17 @@ describe("buildCreatePreview", () => {
     expect(preview.parsedEvent?.title).toBe("FDA产量上报相关培训");
     expect(preview.parsedEvent?.start).toBe("2026-03-31T15:30:00+08:00");
     expect(preview.parsedEvent?.end).toBe("2026-03-31T16:00:00+08:00");
+    expect(preview.normalizedTimeText).toBe("2026-03-31 15:30 - 2026-03-31 16:00 (Asia/Shanghai)");
   });
 
-  it("normalizes relative meeting times from extracted time text", () => {
-    const preview = buildCreatePreview(
-      {
-        sourceText: "原始通知",
-        title: "供应商会议",
-        location: "腾讯会议",
-        timeText: "明天下午13:10到14:10",
-        confidence: 0.92
-      },
-      TIMEZONE
-    );
-
-    expect(preview.shouldAutoCreate).toBe(true);
-    expect(preview.parsedEvent?.location).toBe("腾讯会议");
-    expect(preview.parsedEvent?.allDay).toBe(false);
-  });
-
-  it("keeps explicit date-only inputs as all-day events", () => {
+  it("keeps explicit all-day inputs as all-day events", () => {
     const preview = buildCreatePreview(
       {
         sourceText: "原始通知",
         title: "清明调休",
-        timeText: "2026/04/04",
+        allDay: true,
+        start: "2026-04-04",
+        end: "2026-04-05",
         confidence: 0.92
       },
       TIMEZONE
@@ -84,7 +94,9 @@ describe("buildCreatePreview", () => {
       {
         sourceText: "原始通知",
         title: "FDA产量上报相关培训",
-        timeText: "2026年3月31日15:30-16:00"
+        allDay: false,
+        start: "2026-03-31T15:30:00+08:00",
+        end: "2026-03-31T16:00:00+08:00"
       },
       TIMEZONE
     );
@@ -98,7 +110,9 @@ describe("buildCreatePreview", () => {
       {
         sourceText: "原始通知",
         title: "FDA产量上报相关培训",
-        timeText: "2026年3月31日15:30-16:00",
+        allDay: false,
+        start: "2026-03-31T15:30:00+08:00",
+        end: "2026-03-31T16:00:00+08:00",
         confidence: 0.92,
         issues: ["标题可能不完整"]
       },
@@ -109,74 +123,119 @@ describe("buildCreatePreview", () => {
     expect(preview.blockReasons).toContain("reported_issues");
   });
 
-  it("blocks auto-create when time text is missing", () => {
+  it("blocks auto-create when title is missing", () => {
     const preview = buildCreatePreview(
       {
         sourceText: "原始通知",
-        title: "FDA产量上报相关培训",
+        allDay: false,
+        start: "2026-03-31T15:30:00+08:00",
+        end: "2026-03-31T16:00:00+08:00",
         confidence: 0.92
       },
       TIMEZONE
     );
 
     expect(preview.shouldAutoCreate).toBe(false);
-    expect(preview.blockReasons).toContain("missing_time");
+    expect(preview.blockReasons).toContain("missing_title");
   });
 
-  it("blocks auto-create when time text cannot be normalized", () => {
+  it("blocks auto-create when start is missing", () => {
     const preview = buildCreatePreview(
       {
         sourceText: "原始通知",
         title: "FDA产量上报相关培训",
-        timeText: "下周找个时间",
+        allDay: false,
+        end: "2026-03-31T16:00:00+08:00",
         confidence: 0.92
       },
       TIMEZONE
     );
 
     expect(preview.shouldAutoCreate).toBe(false);
-    expect(preview.blockReasons).toContain("unparseable_time");
+    expect(preview.blockReasons).toContain("missing_start");
   });
 
-  it("supports structured training notices when extraction is correct", () => {
+  it("blocks auto-create when end is missing", () => {
     const preview = buildCreatePreview(
       {
-        sourceText: "@所有人 关于虫鼠控制及末端管控培训名单征集的通知：...",
-        title: "虫鼠控制及末端管控培训",
-        location: "702会议室",
-        timeText: "2026年3月27（周五）14:00-15:00",
+        sourceText: "原始通知",
+        title: "FDA产量上报相关培训",
+        allDay: false,
+        start: "2026-03-31T15:30:00+08:00",
         confidence: 0.92
       },
       TIMEZONE
     );
 
-    expect(preview.shouldAutoCreate).toBe(true);
-    expect(preview.parsedEvent?.location).toBe("702会议室");
-    expect(preview.parsedEvent?.start).toBe("2026-03-27T14:00:00+08:00");
-    expect(preview.parsedEvent?.end).toBe("2026-03-27T15:00:00+08:00");
+    expect(preview.shouldAutoCreate).toBe(false);
+    expect(preview.blockReasons).toContain("missing_end");
   });
-});
 
-describe("applyExtractedOverrides", () => {
-  it("applies confirmed title and time corrections onto extracted input", () => {
-    const extracted = applyExtractedOverrides(
+  it("blocks auto-create when allDay is missing", () => {
+    const preview = buildCreatePreview(
       {
         sourceText: "原始通知",
-        title: "如下",
-        location: "313会议室",
-        timeText: "2026年3月31日15:30-16:30",
-        confidence: 0.4,
-        issues: ["标题疑似错误", "时长疑似错误"]
+        title: "FDA产量上报相关培训",
+        start: "2026-03-31T15:30:00+08:00",
+        end: "2026-03-31T16:00:00+08:00",
+        confidence: 0.92
       },
-      {
-        previewToken: "preview",
-        titleOverride: "FDA产量上报相关培训",
-        timeTextOverride: "2026年3月31日15:30-16:00"
-      }
+      TIMEZONE
     );
 
-    expect(extracted.title).toBe("FDA产量上报相关培训");
-    expect(extracted.timeText).toBe("2026年3月31日15:30-16:00");
+    expect(preview.shouldAutoCreate).toBe(false);
+    expect(preview.blockReasons).toContain("missing_all_day");
+  });
+
+  it("blocks timed events that do not include an explicit offset", () => {
+    const preview = buildCreatePreview(
+      {
+        sourceText: "原始通知",
+        title: "供应商会议",
+        allDay: false,
+        start: "2026-03-31T15:30:00",
+        end: "2026-03-31T16:00:00",
+        confidence: 0.92
+      },
+      TIMEZONE
+    );
+
+    expect(preview.shouldAutoCreate).toBe(false);
+    expect(preview.blockReasons).toContain("invalid_time_format");
+  });
+
+  it("blocks all-day events that do not use date-only values", () => {
+    const preview = buildCreatePreview(
+      {
+        sourceText: "原始通知",
+        title: "清明调休",
+        allDay: true,
+        start: "2026-04-04T00:00:00+08:00",
+        end: "2026-04-05T00:00:00+08:00",
+        confidence: 0.92
+      },
+      TIMEZONE
+    );
+
+    expect(preview.shouldAutoCreate).toBe(false);
+    expect(preview.blockReasons).toContain("invalid_time_format");
+  });
+
+  it("blocks auto-create when end is not later than start", () => {
+    const preview = buildCreatePreview(
+      {
+        sourceText: "原始通知",
+        title: "FDA产量上报相关培训",
+        allDay: false,
+        start: "2026-03-31T16:00:00+08:00",
+        end: "2026-03-31T15:30:00+08:00",
+        confidence: 0.92
+      },
+      TIMEZONE
+    );
+
+    expect(preview.shouldAutoCreate).toBe(false);
+    expect(preview.blockReasons).toContain("invalid_time_range");
   });
 
   it("allows confirmed previews to bypass low-confidence auto-blocking", () => {
@@ -184,7 +243,9 @@ describe("applyExtractedOverrides", () => {
       {
         sourceText: "原始通知",
         title: "FDA产量上报相关培训",
-        timeText: "2026年3月31日15:30-16:00",
+        allDay: false,
+        start: "2026-03-31T15:30:00+08:00",
+        end: "2026-03-31T16:00:00+08:00",
         confidence: 0.4,
         issues: ["标题疑似错误"]
       },
@@ -194,6 +255,33 @@ describe("applyExtractedOverrides", () => {
 
     expect(preview.shouldAutoCreate).toBe(true);
     expect(preview.parsedEvent?.end).toBe("2026-03-31T16:00:00+08:00");
+  });
+});
+
+describe("applyEventOverrides", () => {
+  it("applies confirmed corrections onto structured input", () => {
+    const event = applyEventOverrides(
+      {
+        sourceText: "原始通知",
+        title: "如下",
+        location: "313会议室",
+        allDay: false,
+        start: "2026-03-31T15:30:00+08:00",
+        end: "2026-03-31T16:30:00+08:00",
+        confidence: 0.4,
+        issues: ["标题疑似错误", "时长疑似错误"]
+      },
+      {
+        previewToken: "preview",
+        titleOverride: "FDA产量上报相关培训",
+        startOverride: "2026-03-31T15:30:00+08:00",
+        endOverride: "2026-03-31T16:00:00+08:00"
+      }
+    );
+
+    expect(event.title).toBe("FDA产量上报相关培训");
+    expect(event.start).toBe("2026-03-31T15:30:00+08:00");
+    expect(event.end).toBe("2026-03-31T16:00:00+08:00");
   });
 });
 

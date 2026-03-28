@@ -9,36 +9,41 @@ export type ParsedEvent = {
   confidence: number;      // 0 到 1 的置信度
 };
 
-export type ExtractedEventInput = {
+export type CreateEventInput = {
   sourceText: string;
   title?: string;
   location?: string;
-  timeText?: string;
   description?: string;
+  allDay?: boolean;
+  start?: string;
+  end?: string;
   confidence?: number;
   issues?: string[];
 };
 
 export type CreatePreviewTokenPayload = {
-  version: 2;
-  extracted: ExtractedEventInput;
+  version: 3;
+  event: CreateEventInput;
 };
 
 export type CreateBlockReason =
   | "missing_title"
-  | "missing_time"
-  | "unparseable_time"
+  | "missing_all_day"
+  | "missing_start"
+  | "missing_end"
+  | "invalid_time_format"
+  | "invalid_time_range"
   | "missing_confidence"
   | "low_confidence"
   | "reported_issues";
 
 export type CreateEventPreview = {
-  extracted: ExtractedEventInput;
+  event: CreateEventInput;
   parsedEvent?: ParsedEvent;
   missingFields: string[];
   blockReasons: CreateBlockReason[];
   shouldAutoCreate: boolean;
-  normalizedTimeText?: string;
+  normalizedTimeText?: string; // 仅用于展示，不参与解析
   clarificationPrompt?: string;
   confidenceReasons: string[];
 };

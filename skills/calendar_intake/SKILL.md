@@ -27,19 +27,23 @@ metadata: {"openclaw":{"requires":{"config":["plugins.entries.openclaw-calendar-
 ### 1. 添加日程
 
 如果用户要求把会议通知加入日历，或消息明显是在贴会议通知并要求“加到日历”：
-1. 先从原文抽取结构化字段，再调用 `calendar_intake_create_from_text`，必须传：
+1. 先从原文抽取结构化字段，再调用 `calendar_intake_create_event`，必须传：
    - `sourceText=用户原始通知`
    - `title`
-   - `timeText`
+   - `allDay`
+   - `start`
+   - `end`
    - 可选：`location`、`description`、`confidence`、`issues`
    - `dryRun=true`
-2. 不要把原始通知直接塞给工具让它自己理解；工具现在只负责规范化时间、校验、去重、冲突检查和创建。
-3. 如果返回结果中的 `shouldAutoCreate=true`，优先把 dryRun 返回的 `previewToken` 传回 `calendar_intake_create_from_text` 正式创建。
-4. 如果你发现抽取结果和原文明显不一致，即使 `shouldAutoCreate=true`，也要先展示差异并确认，再用 `previewToken` 加显式覆盖参数（如 `titleOverride`、`locationOverride`、`timeTextOverride`）创建。
-5. 如果 `shouldAutoCreate=false`，简要展示解析结果，并只针对缺失字段或 `issues` 追问一个最短问题。
-6. 用户确认继续创建时，必须复用 dryRun 返回的 `previewToken`；不要把用户的“对 / 是 / 没问题”回复当作新一轮抽取输入。需要改字段时，显式传 override 参数。
-7. 对时间纠正不要问含糊的是/否题。要直接确认最终时间，例如“按 2026-03-31 15:30-16:00 创建，对吗？”
-8. 原始会议通知需要完整传入 `sourceText`，并写入日程 description。
+2. 不要把原始通知直接塞给工具让它自己理解；工具现在只负责校验结构化字段、去重、冲突检查和创建。
+3. 定时事件的 `start/end` 必须是带时区偏移的 RFC3339，例如 `2026-03-31T15:30:00+08:00`；全天事件的 `start/end` 必须是 `YYYY-MM-DD`，且 `end` 要使用 Google Calendar 的 exclusive end date 语义。
+4. 如果返回结果中的 `shouldAutoCreate=true`，优先把 dryRun 返回的 `previewToken` 传回 `calendar_intake_create_event` 正式创建。
+5. 如果你发现抽取结果和原文明显不一致，即使 `shouldAutoCreate=true`，也要先展示差异并确认，再用 `previewToken` 加显式覆盖参数（如 `titleOverride`、`locationOverride`、`startOverride`、`endOverride`、`allDayOverride`）创建。
+6. 如果 `shouldAutoCreate=false`，简要展示解析结果，并只针对缺失字段或 `issues` 追问一个最短问题。
+7. 缺字段时直接追问最终结构化结果，不要再把自然语言时间交给插件兜底解析。
+8. 对时间纠正不要问含糊的是/否题。要直接确认最终 `start/end`，例如“按 `start=2026-03-31T15:30:00+08:00`、`end=2026-03-31T16:00:00+08:00` 创建，对吗？”
+9. 用户确认继续创建时，必须复用 dryRun 返回的 `previewToken`；不要把用户的“对 / 是 / 没问题”回复当作新一轮抽取输入。需要改字段时，显式传 override 参数。
+10. 原始会议通知需要完整传入 `sourceText`，并写入日程 description。
 
 ### 2. 查看日程
 

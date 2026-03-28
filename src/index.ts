@@ -4,7 +4,7 @@ import { registerCalendarIntakeCli } from "./cli.js";
 import { authInitTool } from "./tools/auth-init.js";
 import { authExchangeTool } from "./tools/auth-exchange.js";
 import { authStatusTool } from "./tools/auth-status.js";
-import { createFromTextTool } from "./tools/create-from-text.js";
+import { createEventTool } from "./tools/create-event.js";
 import { listEventsTool } from "./tools/list-events.js";
 import { findEventsTool } from "./tools/find-events.js";
 import { deleteEventTool } from "./tools/delete-event.js";
@@ -32,7 +32,7 @@ export default definePluginEntry({
     api.registerTool(bindTool(authInitTool, api));
     api.registerTool(bindTool(authExchangeTool, api));
     api.registerTool(bindTool(authStatusTool, api));
-    api.registerTool(bindTool(createFromTextTool, api));
+    api.registerTool(bindTool(createEventTool, api));
     api.registerTool(bindTool(listEventsTool, api));
     api.registerTool(bindTool(findEventsTool, api));
     api.registerTool(bindTool(deleteEventTool, api));
