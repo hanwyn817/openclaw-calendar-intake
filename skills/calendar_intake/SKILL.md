@@ -27,13 +27,19 @@ metadata: {"openclaw":{"requires":{"config":["plugins.entries.openclaw-calendar-
 ### 1. 添加日程
 
 如果用户要求把会议通知加入日历，或消息明显是在贴会议通知并要求“加到日历”：
-1. 先调用 `calendar_intake_create_from_text`，并传入 `dryRun=true`。
-2. 如果返回结果中的 `shouldAutoCreate=true`，优先把 dryRun 返回的 `previewToken` 传回 `calendar_intake_create_from_text` 正式创建；只有在没有 token 时才回退到同样的原始文本。
-3. 如果你发现解析结果和原文明显不一致，即使 `shouldAutoCreate=true`，也要先展示差异并确认，再用 `previewToken` 加显式覆盖参数（如 `titleOverride`、`locationOverride`、`timeTextOverride`）创建。
-4. 如果 `shouldAutoCreate=false`，简要展示解析结果，并只针对缺失字段追问一个最短问题。
-5. 用户确认继续创建时，必须复用 dryRun 返回的 `previewToken`；不要把用户的“对 / 是 / 没问题”回复当作 `text` 再解析。需要改字段时，显式传 override 参数。
-6. 对时间纠正不要问含糊的是/否题。要直接确认最终时间，例如“按 2026-03-31 15:30-16:00 创建，对吗？”
-7. 除了去掉前导命令词外，不要改写用户原始通知。
+1. 先从原文抽取结构化字段，再调用 `calendar_intake_create_from_text`，必须传：
+   - `sourceText=用户原始通知`
+   - `title`
+   - `timeText`
+   - 可选：`location`、`description`、`confidence`、`issues`
+   - `dryRun=true`
+2. 不要把原始通知直接塞给工具让它自己理解；工具现在只负责规范化时间、校验、去重、冲突检查和创建。
+3. 如果返回结果中的 `shouldAutoCreate=true`，优先把 dryRun 返回的 `previewToken` 传回 `calendar_intake_create_from_text` 正式创建。
+4. 如果你发现抽取结果和原文明显不一致，即使 `shouldAutoCreate=true`，也要先展示差异并确认，再用 `previewToken` 加显式覆盖参数（如 `titleOverride`、`locationOverride`、`timeTextOverride`）创建。
+5. 如果 `shouldAutoCreate=false`，简要展示解析结果，并只针对缺失字段或 `issues` 追问一个最短问题。
+6. 用户确认继续创建时，必须复用 dryRun 返回的 `previewToken`；不要把用户的“对 / 是 / 没问题”回复当作新一轮抽取输入。需要改字段时，显式传 override 参数。
+7. 对时间纠正不要问含糊的是/否题。要直接确认最终时间，例如“按 2026-03-31 15:30-16:00 创建，对吗？”
+8. 原始会议通知需要完整传入 `sourceText`，并写入日程 description。
 
 ### 2. 查看日程
 

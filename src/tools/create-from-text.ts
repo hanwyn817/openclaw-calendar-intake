@@ -5,16 +5,23 @@ import { DEFAULT_DURATION_MINUTES } from "../constants.js";
 import { assertPluginReady, getConfig } from "../config.js";
 import { formatParsedEventTime, parseDateTimeInZone, toDateOnly, toRfc3339 } from "../datetime.js";
 import { createEvent, describeEvent, listEvents } from "../google/calendar.js";
-import { buildParsedEventPreview } from "../parser.js";
-import type { CalendarEventLite, ParsedEvent, ParsedEventPreview } from "../types.js";
+import type {
+  CalendarEventLite,
+  CreateBlockReason,
+  CreateEventPreview,
+  CreatePreviewTokenPayload,
+  ExtractedEventInput,
+  ParsedEvent
+} from "../types.js";
 
-type PreviewTokenPayload = {
-  version: 1;
-  parsedEvent: ParsedEvent;
-};
-
-type CreateFromTextParams = {
-  text?: string;
+export type CreateFromTextParams = {
+  sourceText?: string;
+  title?: string;
+  location?: string;
+  timeText?: string;
+  description?: string;
+  confidence?: number;
+  issues?: string[];
   previewToken?: string;
   titleOverride?: string;
   locationOverride?: string;
@@ -93,21 +100,242 @@ function detectConflicts(parsedEvent: ParsedEvent, items: CalendarEventLite[], t
   });
 }
 
+function trimOptional(value?: string): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeIssues(issues?: string[]): string[] {
+  return (issues ?? []).map((item) => item.trim()).filter(Boolean);
+}
+
+function buildDescription(extracted: ExtractedEventInput): string {
+  const sourceText = extracted.sourceText.trim();
+  const explicit = trimOptional(extracted.description);
+  if (explicit) {
+    return `${explicit}\n\n---- 原始通知 ----\n${sourceText}`;
+  }
+  return `原始通知：\n${sourceText}`;
+}
+
+export function applyExtractedOverrides(
+  extracted: ExtractedEventInput,
+  params: CreateFromTextParams
+): ExtractedEventInput {
+  return {
+    ...extracted,
+    title: trimOptional(params.titleOverride) ?? trimOptional(extracted.title),
+    location: trimOptional(params.locationOverride) ?? trimOptional(extracted.location),
+    timeText: trimOptional(params.timeTextOverride) ?? trimOptional(extracted.timeText),
+    description: trimOptional(extracted.description),
+    issues: normalizeIssues(extracted.issues)
+  };
+}
+
+function extractedFromParams(params: CreateFromTextParams): ExtractedEventInput {
+  const sourceText = trimOptional(params.sourceText);
+  if (!sourceText) {
+    throw new Error("缺少 sourceText，无法创建日程预览。");
+  }
+
+  return {
+    sourceText,
+    title: trimOptional(params.title),
+    location: trimOptional(params.location),
+    timeText: trimOptional(params.timeText),
+    description: trimOptional(params.description),
+    confidence: typeof params.confidence === "number" ? params.confidence : undefined,
+    issues: normalizeIssues(params.issues)
+  };
+}
+
+function encodePreviewToken(extracted: ExtractedEventInput): string {
+  const payload: CreatePreviewTokenPayload = {
+    version: 2,
+    extracted
+  };
+  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+function decodePreviewToken(token: string): ExtractedEventInput {
+  const raw = Buffer.from(token, "base64url").toString("utf8");
+  const payload = JSON.parse(raw) as Partial<CreatePreviewTokenPayload>;
+  if (payload.version !== 2 || !payload.extracted || typeof payload.extracted.sourceText !== "string") {
+    throw new Error("previewToken 无效或已过期，请重新执行一次创建预览。");
+  }
+
+  return {
+    sourceText: payload.extracted.sourceText.trim(),
+    title: trimOptional(payload.extracted.title),
+    location: trimOptional(payload.extracted.location),
+    timeText: trimOptional(payload.extracted.timeText),
+    description: trimOptional(payload.extracted.description),
+    confidence: typeof payload.extracted.confidence === "number" ? payload.extracted.confidence : undefined,
+    issues: normalizeIssues(payload.extracted.issues)
+  };
+}
+
+function buildClarificationPrompt(blockReasons: CreateBlockReason[], issues: string[]): string | undefined {
+  if (blockReasons.includes("missing_title")) {
+    return "请直接给出最终标题。";
+  }
+  if (blockReasons.includes("missing_time") || blockReasons.includes("unparseable_time")) {
+    return "请直接给出最终时间，例如 2026-03-31 15:30-16:00。";
+  }
+  if (blockReasons.includes("reported_issues") && issues.length) {
+    return `请先确认这些问题：${issues.join("；")}`;
+  }
+  if (blockReasons.includes("missing_confidence") || blockReasons.includes("low_confidence")) {
+    return "请先确认最终标题、时间和地点后再创建。";
+  }
+  return undefined;
+}
+
+function buildParsedEvent(extracted: ExtractedEventInput, timezone: string): ParsedEvent | undefined {
+  const title = trimOptional(extracted.title);
+  const timeText = trimOptional(extracted.timeText);
+  if (!title || !timeText) return undefined;
+
+  const parsed = parseDateTimeInZone(timeText, timezone);
+  if (!parsed) return undefined;
+
+  if (parsed.isDateOnly) {
+    const start = parsed.start.startOf("day");
+    return {
+      title,
+      start: toDateOnly(start),
+      end: toDateOnly(start.plus({ days: 1 })),
+      allDay: true,
+      location: trimOptional(extracted.location),
+      description: buildDescription(extracted),
+      sourceText: extracted.sourceText,
+      confidence: extracted.confidence ?? 0
+    };
+  }
+
+  const end = parsed.end ?? parsed.start.plus({ minutes: DEFAULT_DURATION_MINUTES });
+  return {
+    title,
+    start: toRfc3339(parsed.start),
+    end: toRfc3339(end),
+    allDay: false,
+    location: trimOptional(extracted.location),
+    description: buildDescription(extracted),
+    sourceText: extracted.sourceText,
+    confidence: extracted.confidence ?? 0
+  };
+}
+
+export function buildCreatePreview(
+  extracted: ExtractedEventInput,
+  timezone: string,
+  mode: "fresh" | "confirmed" = "fresh"
+): CreateEventPreview {
+  const normalized: ExtractedEventInput = {
+    sourceText: extracted.sourceText.trim(),
+    title: trimOptional(extracted.title),
+    location: trimOptional(extracted.location),
+    timeText: trimOptional(extracted.timeText),
+    description: trimOptional(extracted.description),
+    confidence: typeof extracted.confidence === "number" ? extracted.confidence : undefined,
+    issues: normalizeIssues(extracted.issues)
+  };
+
+  const missingFields: string[] = [];
+  const blockReasons: CreateBlockReason[] = [];
+  const confidenceReasons: string[] = [];
+
+  if (!normalized.title) {
+    missingFields.push("title");
+    blockReasons.push("missing_title");
+    confidenceReasons.push("标题待确认");
+  } else {
+    confidenceReasons.push("标题已提供");
+  }
+
+  if (!normalized.timeText) {
+    missingFields.push("time");
+    blockReasons.push("missing_time");
+    confidenceReasons.push("时间待确认");
+  }
+
+  const parsedEvent = buildParsedEvent(normalized, timezone);
+  if (normalized.timeText && !parsedEvent) {
+    blockReasons.push("unparseable_time");
+    if (!missingFields.includes("time")) {
+      missingFields.push("time");
+    }
+    confidenceReasons.push("时间描述无法规范化");
+  } else if (parsedEvent) {
+    confidenceReasons.push("开始和结束时间都已规范化");
+  }
+
+  const issues = normalizeIssues(normalized.issues);
+  if (mode === "fresh") {
+    if (normalized.confidence == null) {
+      blockReasons.push("missing_confidence");
+      confidenceReasons.push("缺少 LLM 置信度，默认不自动创建");
+    } else if (normalized.confidence < 0.85) {
+      blockReasons.push("low_confidence");
+      confidenceReasons.push(`LLM 置信度较低 (${normalized.confidence.toFixed(2)})`);
+    } else {
+      confidenceReasons.push(`LLM 置信度 ${normalized.confidence.toFixed(2)}`);
+    }
+
+    if (issues.length) {
+      blockReasons.push("reported_issues");
+      confidenceReasons.push(`LLM 标记待确认：${issues.join("；")}`);
+    }
+  } else {
+    confidenceReasons.push("已使用已确认的预览结果");
+    if (issues.length) {
+      confidenceReasons.push(`已带入待确认问题：${issues.join("；")}`);
+    }
+  }
+
+  const dedupedBlockReasons = Array.from(new Set(blockReasons));
+  return {
+    extracted: normalized,
+    parsedEvent,
+    missingFields,
+    blockReasons: dedupedBlockReasons,
+    shouldAutoCreate: Boolean(parsedEvent) && dedupedBlockReasons.length === 0,
+    normalizedTimeText: parsedEvent ? formatParsedEventTime(parsedEvent, timezone) : undefined,
+    clarificationPrompt: buildClarificationPrompt(dedupedBlockReasons, issues),
+    confidenceReasons
+  };
+}
+
+function resolveCreatePreview(params: CreateFromTextParams, timezone: string): CreateEventPreview {
+  if (params.previewToken) {
+    return buildCreatePreview(
+      applyExtractedOverrides(decodePreviewToken(params.previewToken), params),
+      timezone,
+      "confirmed"
+    );
+  }
+
+  return buildCreatePreview(applyExtractedOverrides(extractedFromParams(params), params), timezone, "fresh");
+}
+
 function buildPreviewText(
-  preview: ParsedEventPreview,
+  preview: CreateEventPreview,
   timezone: string,
   dedupeMatches: CalendarEventLite[],
   conflicts: CalendarEventLite[]
 ) {
   const lines = [
-    `标题：${preview.parsedEvent.title}`,
-    `时间：${preview.normalizedTimeText}`,
-    `地点：${preview.parsedEvent.location ?? "(未识别)"}`,
+    `标题：${preview.extracted.title ?? "(待确认)"}`,
+    `时间：${preview.normalizedTimeText ?? "(待确认)"}`,
+    `地点：${preview.extracted.location ?? "(未识别)"}`,
     `自动创建：${preview.shouldAutoCreate ? "是" : "否"}`
   ];
 
   if (preview.confidenceReasons.length) {
     lines.push(`原因：${preview.confidenceReasons.join("；")}`);
+  }
+  if (preview.blockReasons.length) {
+    lines.push(`阻塞：${preview.blockReasons.join("、")}`);
   }
   if (dedupeMatches.length) {
     lines.push("疑似重复：");
@@ -124,133 +352,23 @@ function buildPreviewText(
   return lines.join("\n");
 }
 
-function encodePreviewToken(preview: ParsedEventPreview): string {
-  const payload: PreviewTokenPayload = {
-    version: 1,
-    parsedEvent: preview.parsedEvent
-  };
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-}
-
-function decodePreviewToken(token: string): ParsedEvent {
-  const raw = Buffer.from(token, "base64url").toString("utf8");
-  const payload = JSON.parse(raw) as Partial<PreviewTokenPayload>;
-  const parsedEvent = payload.parsedEvent;
-
-  if (
-    payload.version !== 1
-    || !parsedEvent
-    || typeof parsedEvent.title !== "string"
-    || typeof parsedEvent.start !== "string"
-    || typeof parsedEvent.end !== "string"
-    || typeof parsedEvent.allDay !== "boolean"
-    || typeof parsedEvent.sourceText !== "string"
-  ) {
-    throw new Error("previewToken 无效或已过期，请重新执行一次创建预览。");
-  }
-
-  return parsedEvent;
-}
-
-export function applyEventOverrides(parsedEvent: ParsedEvent, params: CreateFromTextParams, timezone: string): ParsedEvent {
-  const next: ParsedEvent = {
-    ...parsedEvent,
-    title: params.titleOverride?.trim() || parsedEvent.title,
-    location: params.locationOverride?.trim() || parsedEvent.location
-  };
-
-  if (!params.timeTextOverride?.trim()) {
-    return next;
-  }
-
-  const baseNow = parsedEvent.allDay
-    ? DateTime.fromFormat(parsedEvent.start, "yyyy-LL-dd", { zone: timezone }).set({ hour: 9 })
-    : DateTime.fromISO(parsedEvent.start, { setZone: true }).setZone(timezone);
-  const parsedTime = parseDateTimeInZone(params.timeTextOverride, timezone, baseNow);
-
-  if (!parsedTime) {
-    throw new Error("timeTextOverride 未能解析，请提供更明确的日期或时间段。");
-  }
-
-  if (parsedTime.isDateOnly) {
-    const start = parsedTime.start.startOf("day");
-    return {
-      ...next,
-      start: toDateOnly(start),
-      end: toDateOnly(start.plus({ days: 1 })),
-      allDay: true
-    };
-  }
-
-  const end = parsedTime.end ?? parsedTime.start.plus({ minutes: DEFAULT_DURATION_MINUTES });
-  return {
-    ...next,
-    start: toRfc3339(parsedTime.start),
-    end: toRfc3339(end),
-    allDay: false
-  };
-}
-
-function buildPreviewFromParams(
-  params: CreateFromTextParams,
-  timezone: string
-): ParsedEventPreview {
-  const hasOverrides = Boolean(
-    params.titleOverride?.trim()
-    || params.locationOverride?.trim()
-    || params.timeTextOverride?.trim()
-  );
-
-  if (params.previewToken) {
-    const parsedEvent = applyEventOverrides(decodePreviewToken(params.previewToken), params, timezone);
-    return {
-      parsedEvent,
-      missingFields: [],
-      shouldAutoCreate: true,
-      normalizedTimeText: formatParsedEventTime(parsedEvent, timezone),
-      clarificationPrompt: undefined,
-      confidenceReasons: hasOverrides
-        ? ["已使用已确认的预览结果", "已应用用户确认的字段修正"]
-        : ["已使用已确认的预览结果"]
-    };
-  }
-
-  if (!params.text?.trim()) {
-    throw new Error("缺少原始通知文本，请传入 text，或使用 dryRun 返回的 previewToken。");
-  }
-
-  const basePreview = buildParsedEventPreview(params.text, timezone);
-  if (!hasOverrides) {
-    return basePreview;
-  }
-
-  const parsedEvent = applyEventOverrides(basePreview.parsedEvent, params, timezone);
-  return {
-    ...basePreview,
-    parsedEvent,
-    missingFields: basePreview.missingFields.filter((field) =>
-      !(field === "title" && params.titleOverride?.trim())
-      && !(field === "time" && params.timeTextOverride?.trim())
-      && !(field === "location" && params.locationOverride?.trim())
-    ),
-    shouldAutoCreate: true,
-    normalizedTimeText: formatParsedEventTime(parsedEvent, timezone),
-    clarificationPrompt: undefined,
-    confidenceReasons: [...basePreview.confidenceReasons, "已应用用户确认的字段修正"]
-  };
-}
-
 /**
  * 工具：calendar_intake_create_from_text
  *
- * 解析原始会议通知并创建 Google Calendar 事项。
- * 当 dryRun 为 true 时，只返回解析结果，不实际写入日历。
+ * 接收对话层抽取好的结构化字段，规范化后创建 Google Calendar 事项。
+ * 当 dryRun 为 true 时，只返回预览，不实际写入日历。
  */
 export const createFromTextTool = {
   name: "calendar_intake_create_from_text",
-  description: "解析原始会议通知文本，并创建 Google Calendar 日程。",
+  description: "接收结构化抽取结果，规范化时间并创建 Google Calendar 日程。",
   parameters: Type.Object({
-    text: Type.Optional(Type.String()),
+    sourceText: Type.Optional(Type.String()),
+    title: Type.Optional(Type.String()),
+    location: Type.Optional(Type.String()),
+    timeText: Type.Optional(Type.String()),
+    description: Type.Optional(Type.String()),
+    confidence: Type.Optional(Type.Number()),
+    issues: Type.Optional(Type.Array(Type.String())),
     previewToken: Type.Optional(Type.String()),
     titleOverride: Type.Optional(Type.String()),
     locationOverride: Type.Optional(Type.String()),
@@ -261,26 +379,33 @@ export const createFromTextTool = {
     const api = (this as any).api;
     const cfg = getConfig(api);
     assertPluginReady(cfg);
-    const basePreview = buildPreviewFromParams(params, cfg.timezone);
-    const window = buildEventDayWindow(basePreview.parsedEvent, cfg.timezone);
-    const nearby = await listEvents(
-      cfg.credentialsPath,
-      cfg.tokenPath,
-      cfg.calendarId,
-      window.start,
-      window.end,
-      cfg.timezone
-    );
-    const dedupeMatches = detectDedupeMatches(
-      basePreview.parsedEvent,
-      nearby,
-      cfg.timezone,
-      cfg.dedupeWindowMinutes
-    );
-    const conflicts = detectConflicts(basePreview.parsedEvent, nearby, cfg.timezone);
+
+    const basePreview = resolveCreatePreview(params, cfg.timezone);
+    const eventWindow = basePreview.parsedEvent
+      ? buildEventDayWindow(basePreview.parsedEvent, cfg.timezone)
+      : undefined;
+    const nearby = basePreview.parsedEvent
+      ? await listEvents(
+        cfg.credentialsPath,
+        cfg.tokenPath,
+        cfg.calendarId,
+        eventWindow!.start,
+        eventWindow!.end,
+        cfg.timezone
+      )
+      : [];
+    const dedupeMatches = basePreview.parsedEvent
+      ? detectDedupeMatches(
+        basePreview.parsedEvent,
+        nearby,
+        cfg.timezone,
+        cfg.dedupeWindowMinutes
+      )
+      : [];
+    const conflicts = basePreview.parsedEvent ? detectConflicts(basePreview.parsedEvent, nearby, cfg.timezone) : [];
     const shouldAutoCreate = basePreview.shouldAutoCreate && dedupeMatches.length === 0 && conflicts.length === 0;
-    const previewToken = encodePreviewToken(basePreview);
-    const preview = {
+    const previewToken = encodePreviewToken(basePreview.extracted);
+    const preview: CreateEventPreview & { previewToken: string } = {
       ...basePreview,
       shouldAutoCreate,
       previewToken,
@@ -305,16 +430,11 @@ export const createFromTextTool = {
           dedupeMatches,
           conflicts
         },
-        content: [
-          {
-            type: "text",
-            text
-          }
-        ]
+        content: [{ type: "text", text }]
       };
     }
 
-    if (!preview.shouldAutoCreate) {
+    if (!preview.shouldAutoCreate || !preview.parsedEvent) {
       return {
         structuredContent: {
           ...preview,
@@ -322,15 +442,11 @@ export const createFromTextTool = {
           conflicts,
           blocked: true
         },
-        content: [
-          {
-            type: "text",
-            text: `${text}\n\n当前不会直接创建，请先完成确认。`
-          }
-        ]
+        content: [{ type: "text", text: `${text}\n\n当前不会直接创建，请先完成确认。` }]
       };
     }
 
+    const normalizedTimeText = formatParsedEventTime(preview.parsedEvent, cfg.timezone);
     const created = await createEvent(
       cfg.credentialsPath,
       cfg.tokenPath,
@@ -343,12 +459,13 @@ export const createFromTextTool = {
       structuredContent: {
         createdEventId: created.id ?? null,
         summary: created.summary ?? preview.parsedEvent.title,
-        normalizedTimeText: formatParsedEventTime(preview.parsedEvent, cfg.timezone)
+        normalizedTimeText,
+        previewToken
       },
       content: [
         {
           type: "text",
-          text: `已添加日程：${created.summary ?? preview.parsedEvent.title}\n时间：${formatParsedEventTime(preview.parsedEvent, cfg.timezone)}\n地点：${preview.parsedEvent.location ?? "(未识别)"}`
+          text: `已添加日程：${created.summary ?? preview.parsedEvent.title}\n时间：${normalizedTimeText}\n地点：${preview.parsedEvent.location ?? "(未识别)"}`
         }
       ]
     };
