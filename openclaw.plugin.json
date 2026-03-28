@@ -1,6 +1,6 @@
 {
     "id": "openclaw-calendar-intake",
-    "version": "0.1.1",
+    "version": "0.2.0",
     "name": "日历收件箱",
     "description": "解析粘贴的会议通知，并管理 Google Calendar 日程",
     "skills": [
