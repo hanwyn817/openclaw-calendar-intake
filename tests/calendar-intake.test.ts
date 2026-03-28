@@ -21,6 +21,7 @@ import { buildParsedEventPreview, parseEventFromText } from "../src/parser.js";
 import { scoreEventMatch } from "../src/scoring.js";
 import { formatSetupCompletionMessage } from "../src/cli.js";
 import { autoDeleteCandidateId, buildFindQuery, findCandidateByChoiceId } from "../src/tools/find-events.js";
+import { applyEventOverrides } from "../src/tools/create-from-text.js";
 import { rangeToWindow } from "../src/tools/list-events.js";
 import type { CalendarEventLite } from "../src/types.js";
 
@@ -88,6 +89,17 @@ describe("parseEventFromText", () => {
     expect(event.end).toBe("2026-03-27T15:00:00+08:00");
     expect(event.location).toBe("702会议室");
   });
+
+  it("prefers bracketed headline titles over generic prose endings", () => {
+    const event = parseEventFromText(
+      "【FDA产量上报相关培训】\n各位领导、同事：\n下周将统一对汇总填报相关事项目进行培训，具体安排如下：\n1、时间：2026年3月31日15:30-16:00\n2、地点：313会议室",
+      TIMEZONE,
+      { now: "2026-03-28T13:34:00+08:00" }
+    );
+
+    expect(event.title).toBe("FDA产量上报相关培训");
+    expect(event.end).toBe("2026-03-31T16:00:00+08:00");
+  });
 });
 
 describe("buildParsedEventPreview", () => {
@@ -126,6 +138,33 @@ describe("buildParsedEventPreview", () => {
     expect(preview.missingFields).toEqual([]);
     expect(preview.normalizedTimeText).toContain("2026-03-27 14:00 - 2026-03-27 15:00");
     expect(preview.parsedEvent.location).toBe("702会议室");
+  });
+});
+
+describe("applyEventOverrides", () => {
+  it("applies confirmed title and time corrections onto a preview event", () => {
+    const corrected = applyEventOverrides(
+      {
+        title: "如下",
+        start: "2026-03-31T15:30:00+08:00",
+        end: "2026-03-31T16:30:00+08:00",
+        allDay: false,
+        location: "313会议室",
+        description: "原始通知",
+        sourceText: "原始通知",
+        confidence: 0.92
+      },
+      {
+        previewToken: "preview",
+        titleOverride: "FDA产量上报相关培训",
+        timeTextOverride: "2026年3月31日15:30-16:00"
+      },
+      TIMEZONE
+    );
+
+    expect(corrected.title).toBe("FDA产量上报相关培训");
+    expect(corrected.start).toBe("2026-03-31T15:30:00+08:00");
+    expect(corrected.end).toBe("2026-03-31T16:00:00+08:00");
   });
 });
 

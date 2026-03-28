@@ -1,8 +1,9 @@
 import { Type } from "@sinclair/typebox";
 import { fuzzy } from "fast-fuzzy";
 import { DateTime } from "luxon";
+import { DEFAULT_DURATION_MINUTES } from "../constants.js";
 import { assertPluginReady, getConfig } from "../config.js";
-import { formatParsedEventTime } from "../datetime.js";
+import { formatParsedEventTime, parseDateTimeInZone, toDateOnly, toRfc3339 } from "../datetime.js";
 import { createEvent, describeEvent, listEvents } from "../google/calendar.js";
 import { buildParsedEventPreview } from "../parser.js";
 import type { CalendarEventLite, ParsedEvent, ParsedEventPreview } from "../types.js";
@@ -10,6 +11,15 @@ import type { CalendarEventLite, ParsedEvent, ParsedEventPreview } from "../type
 type PreviewTokenPayload = {
   version: 1;
   parsedEvent: ParsedEvent;
+};
+
+type CreateFromTextParams = {
+  text?: string;
+  previewToken?: string;
+  titleOverride?: string;
+  locationOverride?: string;
+  timeTextOverride?: string;
+  dryRun?: boolean;
 };
 
 function eventStartIso(event: CalendarEventLite): string | undefined {
@@ -142,19 +152,66 @@ function decodePreviewToken(token: string): ParsedEvent {
   return parsedEvent;
 }
 
+export function applyEventOverrides(parsedEvent: ParsedEvent, params: CreateFromTextParams, timezone: string): ParsedEvent {
+  const next: ParsedEvent = {
+    ...parsedEvent,
+    title: params.titleOverride?.trim() || parsedEvent.title,
+    location: params.locationOverride?.trim() || parsedEvent.location
+  };
+
+  if (!params.timeTextOverride?.trim()) {
+    return next;
+  }
+
+  const baseNow = parsedEvent.allDay
+    ? DateTime.fromFormat(parsedEvent.start, "yyyy-LL-dd", { zone: timezone }).set({ hour: 9 })
+    : DateTime.fromISO(parsedEvent.start, { setZone: true }).setZone(timezone);
+  const parsedTime = parseDateTimeInZone(params.timeTextOverride, timezone, baseNow);
+
+  if (!parsedTime) {
+    throw new Error("timeTextOverride 未能解析，请提供更明确的日期或时间段。");
+  }
+
+  if (parsedTime.isDateOnly) {
+    const start = parsedTime.start.startOf("day");
+    return {
+      ...next,
+      start: toDateOnly(start),
+      end: toDateOnly(start.plus({ days: 1 })),
+      allDay: true
+    };
+  }
+
+  const end = parsedTime.end ?? parsedTime.start.plus({ minutes: DEFAULT_DURATION_MINUTES });
+  return {
+    ...next,
+    start: toRfc3339(parsedTime.start),
+    end: toRfc3339(end),
+    allDay: false
+  };
+}
+
 function buildPreviewFromParams(
-  params: { text?: string; previewToken?: string },
+  params: CreateFromTextParams,
   timezone: string
 ): ParsedEventPreview {
+  const hasOverrides = Boolean(
+    params.titleOverride?.trim()
+    || params.locationOverride?.trim()
+    || params.timeTextOverride?.trim()
+  );
+
   if (params.previewToken) {
-    const parsedEvent = decodePreviewToken(params.previewToken);
+    const parsedEvent = applyEventOverrides(decodePreviewToken(params.previewToken), params, timezone);
     return {
       parsedEvent,
       missingFields: [],
       shouldAutoCreate: true,
       normalizedTimeText: formatParsedEventTime(parsedEvent, timezone),
       clarificationPrompt: undefined,
-      confidenceReasons: ["已使用已确认的预览结果"]
+      confidenceReasons: hasOverrides
+        ? ["已使用已确认的预览结果", "已应用用户确认的字段修正"]
+        : ["已使用已确认的预览结果"]
     };
   }
 
@@ -162,7 +219,25 @@ function buildPreviewFromParams(
     throw new Error("缺少原始通知文本，请传入 text，或使用 dryRun 返回的 previewToken。");
   }
 
-  return buildParsedEventPreview(params.text, timezone);
+  const basePreview = buildParsedEventPreview(params.text, timezone);
+  if (!hasOverrides) {
+    return basePreview;
+  }
+
+  const parsedEvent = applyEventOverrides(basePreview.parsedEvent, params, timezone);
+  return {
+    ...basePreview,
+    parsedEvent,
+    missingFields: basePreview.missingFields.filter((field) =>
+      !(field === "title" && params.titleOverride?.trim())
+      && !(field === "time" && params.timeTextOverride?.trim())
+      && !(field === "location" && params.locationOverride?.trim())
+    ),
+    shouldAutoCreate: true,
+    normalizedTimeText: formatParsedEventTime(parsedEvent, timezone),
+    clarificationPrompt: undefined,
+    confidenceReasons: [...basePreview.confidenceReasons, "已应用用户确认的字段修正"]
+  };
 }
 
 /**
@@ -177,9 +252,12 @@ export const createFromTextTool = {
   parameters: Type.Object({
     text: Type.Optional(Type.String()),
     previewToken: Type.Optional(Type.String()),
+    titleOverride: Type.Optional(Type.String()),
+    locationOverride: Type.Optional(Type.String()),
+    timeTextOverride: Type.Optional(Type.String()),
     dryRun: Type.Optional(Type.Boolean())
   }),
-  async execute(_id: string, params: { text?: string; previewToken?: string; dryRun?: boolean }) {
+  async execute(_id: string, params: CreateFromTextParams) {
     const api = (this as any).api;
     const cfg = getConfig(api);
     assertPluginReady(cfg);

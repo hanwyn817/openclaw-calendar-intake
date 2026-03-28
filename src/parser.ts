@@ -44,6 +44,7 @@ function isQuotedOrHeaderLine(line: string): boolean {
 function inferTitleFromSentence(text: string): string | undefined {
   const match = text.match(/(?:召开|举行|安排|组织)\s*([^，。:\n]{1,40}?)(?=[：:，。,]|$)/u);
   const value = match?.[1]?.trim();
+  if (!value || /^(如下|如下安排|如下内容)$/u.test(value)) return undefined;
   return value || undefined;
 }
 
@@ -57,6 +58,15 @@ function inferTitleFromNoticeHeadline(text: string): string | undefined {
   const cleaned = firstLine.replace(/^@[^ ]+\s*/u, "");
   const match = cleaned.match(/(?:关于)?(.+?)(?:名单征集|报名通知)?的通知[:：]?$/u);
   return match?.[1]?.trim() || undefined;
+}
+
+function inferBracketedTitle(text: string): string | undefined {
+  const firstLine = text
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+  const value = firstLine?.match(/^[【\[](.*?)[】\]]$/u)?.[1]?.trim();
+  return value || undefined;
 }
 
 function formatContentAsTitle(content: string, text: string): string {
@@ -77,6 +87,9 @@ function formatContentAsTitle(content: string, text: string): string {
 function deriveTitle(text: string): string {
   const explicit = extractLabeledValue(text, TITLE_LABELS);
   if (explicit) return explicit;
+
+  const bracketed = inferBracketedTitle(text);
+  if (bracketed) return bracketed;
 
   const contentTitle = extractLabeledValue(text, CONTENT_LABELS);
   if (contentTitle) return formatContentAsTitle(contentTitle, text);
