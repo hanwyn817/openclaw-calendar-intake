@@ -37,7 +37,7 @@ export function extractUrls(input: string): string[] {
  */
 export function extractLabeledValue(text: string, labels: string[]): string | undefined {
   const pattern = new RegExp(
-    `^(?:${labels.map(escapeRegExp).join("|")})\\s*:\\s*(.+)$`,
+    `^(?:[一二三四五六七八九十百千0-9]+[、.)．]\\s*)?(?:${labels.map(escapeRegExp).join("|")})\\s*:\\s*(.+)$`,
     "imu"
   );
   const match = text.match(pattern);

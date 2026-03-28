@@ -28,9 +28,10 @@ metadata: {"openclaw":{"requires":{"config":["plugins.entries.openclaw-calendar-
 
 如果用户要求把会议通知加入日历，或消息明显是在贴会议通知并要求“加到日历”：
 1. 先调用 `calendar_intake_create_from_text`，并传入 `dryRun=true`。
-2. 如果返回结果中的 `shouldAutoCreate=true`，再用同样的文本调用一次 `calendar_intake_create_from_text` 正式创建日程。
+2. 如果返回结果中的 `shouldAutoCreate=true`，优先把 dryRun 返回的 `previewToken` 传回 `calendar_intake_create_from_text` 正式创建；只有在没有 token 时才回退到同样的原始文本。
 3. 如果 `shouldAutoCreate=false`，简要展示解析结果，并只针对缺失字段追问一个最短问题。
-4. 除了去掉前导命令词外，不要改写用户原始通知。
+4. 用户确认继续创建时，必须复用 dryRun 返回的 `previewToken`；不要把用户的“对 / 是 / 没问题”回复当作 `text` 再解析。
+5. 除了去掉前导命令词外，不要改写用户原始通知。
 
 ### 2. 查看日程
 

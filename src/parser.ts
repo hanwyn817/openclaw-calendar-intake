@@ -1,6 +1,7 @@
 import * as chrono from "chrono-node";
 import { DateTime } from "luxon";
 import {
+  CONTENT_LABELS,
   DEFAULT_DURATION_MINUTES,
   DESC_LABELS,
   LOCATION_KEYWORDS,
@@ -40,12 +41,51 @@ function isQuotedOrHeaderLine(line: string): boolean {
   return /^(>|>>|On .+ wrote:|发件人:|收件人:|抄送:|主题:|subject:|from:|to:|cc:)/i.test(line);
 }
 
+function inferTitleFromSentence(text: string): string | undefined {
+  const match = text.match(/(?:召开|举行|安排|组织)\s*([^，。:\n]{1,40}?)(?=[：:，。,]|$)/u);
+  const value = match?.[1]?.trim();
+  return value || undefined;
+}
+
+function inferTitleFromNoticeHeadline(text: string): string | undefined {
+  const firstLine = text
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!firstLine) return undefined;
+
+  const cleaned = firstLine.replace(/^@[^ ]+\s*/u, "");
+  const match = cleaned.match(/(?:关于)?(.+?)(?:名单征集|报名通知)?的通知[:：]?$/u);
+  return match?.[1]?.trim() || undefined;
+}
+
+function formatContentAsTitle(content: string, text: string): string {
+  if (/(培训|课程|讲座|会议|例会|分享会|宣讲|workshop)$/iu.test(content)) {
+    return content;
+  }
+
+  if (/培训/u.test(text)) {
+    return `${content}培训`;
+  }
+
+  return content;
+}
+
 /**
  * 从显式标签字段或第一条高信息量文本行中推导标题。
  */
 function deriveTitle(text: string): string {
   const explicit = extractLabeledValue(text, TITLE_LABELS);
   if (explicit) return explicit;
+
+  const contentTitle = extractLabeledValue(text, CONTENT_LABELS);
+  if (contentTitle) return formatContentAsTitle(contentTitle, text);
+
+  const headline = inferTitleFromNoticeHeadline(text);
+  if (headline) return headline;
+
+  const inferred = inferTitleFromSentence(text);
+  if (inferred) return inferred;
 
   const candidate = text
     .split("\n")
@@ -54,6 +94,8 @@ function deriveTitle(text: string): string {
     .find((line) => {
       if (isQuotedOrHeaderLine(line)) return false;
       if (/^(dear|hi|hello|大家好|各位好|FYI|re:|fw:)/i.test(line)) return false;
+      if (/^@/.test(line)) return false;
+      if (/^(?:[-*•]|\d+[.)、]|[一二三四五六七八九十百千]+[、.)．])/u.test(line)) return false;
       if (/^(时间|time|when|地点|location|where|备注|议程|agenda|description)\s*:/i.test(line)) return false;
       if (/^https?:\/\//i.test(line)) return false;
       if (chrono.parse(line, new Date(), { forwardDate: true }).length > 0 && line.length <= 30) return false;
@@ -81,6 +123,14 @@ function deriveLocation(text: string): string | undefined {
 
   const meetingCode = text.match(/(?:会议号|meeting id)\s*[:：]?\s*([A-Za-z0-9\- ]{6,})/i)?.[1]?.trim();
   if (meetingCode) return `会议号 ${meetingCode}`;
+
+  const numberedRoomMatch = text.match(/([A-Za-z0-9\-]+\s*(?:会议室|conference room))(?=\s|召开|开会|举行|安排|$|[，。,:：])/iu)?.[1]?.trim();
+  if (numberedRoomMatch) return numberedRoomMatch;
+
+  const roomMatch = text.match(
+    /((?:会议室|conference room)(?:\s*[A-Za-z0-9\-]+(?:室)?)?)(?=\s|召开|开会|举行|安排|$|[，。,:：])/iu
+  )?.[1]?.trim();
+  if (roomMatch) return roomMatch;
 
   const keyword = LOCATION_KEYWORDS.find((k) => lower.includes(k.toLowerCase()));
   return keyword;

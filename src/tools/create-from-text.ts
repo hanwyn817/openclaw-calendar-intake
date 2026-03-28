@@ -7,6 +7,11 @@ import { createEvent, describeEvent, listEvents } from "../google/calendar.js";
 import { buildParsedEventPreview } from "../parser.js";
 import type { CalendarEventLite, ParsedEvent, ParsedEventPreview } from "../types.js";
 
+type PreviewTokenPayload = {
+  version: 1;
+  parsedEvent: ParsedEvent;
+};
+
 function eventStartIso(event: CalendarEventLite): string | undefined {
   return event.start?.dateTime ?? event.start?.date;
 }
@@ -109,6 +114,57 @@ function buildPreviewText(
   return lines.join("\n");
 }
 
+function encodePreviewToken(preview: ParsedEventPreview): string {
+  const payload: PreviewTokenPayload = {
+    version: 1,
+    parsedEvent: preview.parsedEvent
+  };
+  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+function decodePreviewToken(token: string): ParsedEvent {
+  const raw = Buffer.from(token, "base64url").toString("utf8");
+  const payload = JSON.parse(raw) as Partial<PreviewTokenPayload>;
+  const parsedEvent = payload.parsedEvent;
+
+  if (
+    payload.version !== 1
+    || !parsedEvent
+    || typeof parsedEvent.title !== "string"
+    || typeof parsedEvent.start !== "string"
+    || typeof parsedEvent.end !== "string"
+    || typeof parsedEvent.allDay !== "boolean"
+    || typeof parsedEvent.sourceText !== "string"
+  ) {
+    throw new Error("previewToken 无效或已过期，请重新执行一次创建预览。");
+  }
+
+  return parsedEvent;
+}
+
+function buildPreviewFromParams(
+  params: { text?: string; previewToken?: string },
+  timezone: string
+): ParsedEventPreview {
+  if (params.previewToken) {
+    const parsedEvent = decodePreviewToken(params.previewToken);
+    return {
+      parsedEvent,
+      missingFields: [],
+      shouldAutoCreate: true,
+      normalizedTimeText: formatParsedEventTime(parsedEvent, timezone),
+      clarificationPrompt: undefined,
+      confidenceReasons: ["已使用已确认的预览结果"]
+    };
+  }
+
+  if (!params.text?.trim()) {
+    throw new Error("缺少原始通知文本，请传入 text，或使用 dryRun 返回的 previewToken。");
+  }
+
+  return buildParsedEventPreview(params.text, timezone);
+}
+
 /**
  * 工具：calendar_intake_create_from_text
  *
@@ -119,14 +175,15 @@ export const createFromTextTool = {
   name: "calendar_intake_create_from_text",
   description: "解析原始会议通知文本，并创建 Google Calendar 日程。",
   parameters: Type.Object({
-    text: Type.String(),
+    text: Type.Optional(Type.String()),
+    previewToken: Type.Optional(Type.String()),
     dryRun: Type.Optional(Type.Boolean())
   }),
-  async execute(_id: string, params: { text: string; dryRun?: boolean }) {
+  async execute(_id: string, params: { text?: string; previewToken?: string; dryRun?: boolean }) {
     const api = (this as any).api;
     const cfg = getConfig(api);
     assertPluginReady(cfg);
-    const basePreview = buildParsedEventPreview(params.text, cfg.timezone);
+    const basePreview = buildPreviewFromParams(params, cfg.timezone);
     const window = buildEventDayWindow(basePreview.parsedEvent, cfg.timezone);
     const nearby = await listEvents(
       cfg.credentialsPath,
@@ -144,9 +201,11 @@ export const createFromTextTool = {
     );
     const conflicts = detectConflicts(basePreview.parsedEvent, nearby, cfg.timezone);
     const shouldAutoCreate = basePreview.shouldAutoCreate && dedupeMatches.length === 0 && conflicts.length === 0;
+    const previewToken = encodePreviewToken(basePreview);
     const preview = {
       ...basePreview,
       shouldAutoCreate,
+      previewToken,
       confidenceReasons: [
         ...basePreview.confidenceReasons,
         ...(dedupeMatches.length ? ["检测到疑似重复事项"] : []),

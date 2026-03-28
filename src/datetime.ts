@@ -83,12 +83,19 @@ function parsedComponentToDateTimeWithFallback(
 }
 
 function parseChronoResult(text: string, referenceDate: Date) {
+  const normalizedText = text
+    .replace(/[（(]\s*(?:周|星期)[一二三四五六日天]\s*[）)]/g, " ")
+    .replace(/(上午|下午|中午|晚上|早上|凌晨|傍晚|午后)(?=\d)/g, "$1 ")
+    .replace(/(am|pm)(?=\d)/gi, "$1 ")
+    .replace(/(下午|晚上|傍晚|午后|中午)\s*(1[3-9]|2[0-3])(?=:\d{2}\b)/g, (_m, label, hour) => `${label} ${Number(hour) - 12}`)
+    .replace(/(下午|晚上|傍晚|午后|中午)\s*(1[3-9]|2[0-3])(?=点(?:\d{1,2}分?)?)/g, (_m, label, hour) => `${label} ${Number(hour) - 12}`)
+    .replace(/(pm)\s*(1[3-9]|2[0-3])(?=:\d{2}\b)/gi, (_m, label, hour) => `${label} ${Number(hour) - 12}`);
   const parsers = /[\u3400-\u9fff]/u.test(text)
     ? [chrono.zh.casual, chrono.casual]
     : [chrono.casual, chrono.zh.casual];
 
   for (const parser of parsers) {
-    const match = parser.parse(text, referenceDate, { forwardDate: true })[0];
+    const match = parser.parse(normalizedText, referenceDate, { forwardDate: true })[0];
     if (match) {
       return match;
     }

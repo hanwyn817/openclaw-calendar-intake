@@ -29,14 +29,14 @@ const TIMEZONE = "Asia/Shanghai";
 describe("parseEventFromText", () => {
   it("parses relative meeting time in Asia/Shanghai", () => {
     const event = parseEventFromText(
-      "添加日程\n主题：供应商会议\n时间：明天下午3点到4点\n地点：腾讯会议",
+      "添加日程\n主题：供应商会议\n时间：明天下午13:10到14:10\n地点：腾讯会议",
       TIMEZONE,
       { now: "2026-03-27T09:00:00+08:00" }
     );
 
     expect(event.title).toBe("供应商会议");
-    expect(event.start).toBe("2026-03-28T15:00:00+08:00");
-    expect(event.end).toBe("2026-03-28T16:00:00+08:00");
+    expect(event.start).toBe("2026-03-28T13:10:00+08:00");
+    expect(event.end).toBe("2026-03-28T14:10:00+08:00");
     expect(event.allDay).toBe(false);
   });
 
@@ -50,6 +50,43 @@ describe("parseEventFromText", () => {
     expect(event.allDay).toBe(true);
     expect(event.start).toBe("2026-04-04");
     expect(event.end).toBe("2026-04-05");
+  });
+
+  it("parses compact Chinese meridiem time without dropping the relative day", () => {
+    const event = parseEventFromText(
+      "添加日程\n主题：部门例会\n时间：明天下午13:10\n地点：会议室315",
+      TIMEZONE,
+      { now: "2026-03-28T12:58:00+08:00" }
+    );
+
+    expect(event.start).toBe("2026-03-29T13:10:00+08:00");
+    expect(event.end).toBe("2026-03-29T14:10:00+08:00");
+    expect(event.location).toBe("会议室315");
+  });
+
+  it("extracts title and room number from unstructured meeting notices", () => {
+    const event = parseEventFromText(
+      "定于明天下午13:10在会议室315召开部门例会：\n@所有人\n1) 各组负责人汇报重点工作",
+      TIMEZONE,
+      { now: "2026-03-28T12:58:00+08:00" }
+    );
+
+    expect(event.title).toBe("部门例会");
+    expect(event.start).toBe("2026-03-29T13:10:00+08:00");
+    expect(event.location).toBe("会议室315");
+  });
+
+  it("parses structured training notices with numbered labels", () => {
+    const event = parseEventFromText(
+      "@所有人 关于虫鼠控制及末端管控培训名单征集的通知：\n一、培训内容：虫鼠控制及末端管控\n二、培训讲师：贾晓东\n三、培训时间：2026年3月27（周五）14:00-15:00\n四、培训地点：702会议室\n五、参加对象：质量管理中心\n六、培训要求：请大家提前10分钟到达702会议室。",
+      TIMEZONE,
+      { now: "2026-03-25T10:00:00+08:00" }
+    );
+
+    expect(event.title).toBe("虫鼠控制及末端管控培训");
+    expect(event.start).toBe("2026-03-27T14:00:00+08:00");
+    expect(event.end).toBe("2026-03-27T15:00:00+08:00");
+    expect(event.location).toBe("702会议室");
   });
 });
 
@@ -76,6 +113,19 @@ describe("buildParsedEventPreview", () => {
     expect(preview.shouldAutoCreate).toBe(false);
     expect(preview.missingFields).toContain("time");
     expect(preview.clarificationPrompt).toContain("全天事项");
+  });
+
+  it("auto-creates structured training notices", () => {
+    const preview = buildParsedEventPreview(
+      "@所有人 关于虫鼠控制及末端管控培训名单征集的通知：\n一、培训内容：虫鼠控制及末端管控\n二、培训讲师：贾晓东\n三、培训时间：2026年3月27（周五）14:00-15:00\n四、培训地点：702会议室",
+      TIMEZONE,
+      { now: "2026-03-25T10:00:00+08:00" }
+    );
+
+    expect(preview.shouldAutoCreate).toBe(true);
+    expect(preview.missingFields).toEqual([]);
+    expect(preview.normalizedTimeText).toContain("2026-03-27 14:00 - 2026-03-27 15:00");
+    expect(preview.parsedEvent.location).toBe("702会议室");
   });
 });
 
